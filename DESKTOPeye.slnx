@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/fixtures/">
+    <Project Path="fixtures/DESKTOPeye.Win32Adversary/DESKTOPeye.Win32Adversary.csproj" />
+    <Project Path="fixtures/DESKTOPeye.WpfIdentityFixture/DESKTOPeye.WpfIdentityFixture.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/DESKTOPeye.Capture/DESKTOPeye.Capture.csproj" />
+    <Project Path="src/DESKTOPeye.Input/DESKTOPeye.Input.csproj" />
+    <Project Path="src/DESKTOPeye.Kernel/DESKTOPeye.Kernel.csproj" />
+    <Project Path="src/DESKTOPeye.Platform.Windows/DESKTOPeye.Platform.Windows.csproj" />
+    <Project Path="src/DESKTOPeye.Protocol/DESKTOPeye.Protocol.csproj" />
+    <Project Path="src/DESKTOPeye.SessionHost/DESKTOPeye.SessionHost.csproj" />
+    <Project Path="src/DESKTOPeye.UIA.Worker/DESKTOPeye.UIA.Worker.csproj" />
+    <Project Path="src/DESKTOPeye.UIAutomation/DESKTOPeye.UIAutomation.csproj" />
+    <Project Path="src/DESKTOPeye.World/DESKTOPeye.World.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DESKTOPeye.Acceptance/DESKTOPeye.Acceptance.csproj" />
+    <Project Path="tests/DESKTOPeye.Integration.Tests/DESKTOPeye.Integration.Tests.csproj" />
+    <Project Path="tests/DESKTOPeye.Unit.Tests/DESKTOPeye.Unit.Tests.csproj" />
+  </Folder>
+</Solution>
