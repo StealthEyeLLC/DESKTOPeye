@@ -37,10 +37,13 @@ public static class Program
             "hello" => new{workerId,pid=Environment.ProcessId,providerEpoch=uia.ProviderEpoch,capabilities=uia.Capabilities(),apartment=Thread.CurrentThread.GetApartmentState().ToString()},
             "uia.observe_handle" => uia.ObserveHandle(Get<long>(req.Params,"hwnd")),
             "uia.query" => uia.Query(Get<long>(req.Params,"rootHwnd"),GetOpt<string>(req.Params,"name"),GetOpt<string>(req.Params,"automationId"),GetOpt<string>(req.Params,"itemStatus"),GetOpt<int?>(req.Params,"controlType"),GetOpt<int?>(req.Params,"limit")??256),
+            "uia.resolve_runtime" => uia.ResolveByRuntimeId(Get<long>(req.Params,"rootHwnd"),Get<string>(req.Params,"runtimeId")),
             "uia.focused" => uia.Focused(),
             "uia.element_from_point" => uia.ElementFromPoint(Get<double>(req.Params,"x"),Get<double>(req.Params,"y")),
             "uia.action" => uia.Action(Get<long>(req.Params,"rootHwnd"),Locator(req.Params.GetProperty("locator")),Get<string>(req.Params,"operation"),GetOpt<string>(req.Params,"value")),
             "uia.clickable_point" => uia.ClickablePoint(Get<long>(req.Params,"rootHwnd"),Locator(req.Params.GetProperty("locator"))),
+            "uia.find_item_by_property" => uia.FindItemByProperty(Get<long>(req.Params,"rootHwnd"),Locator(req.Params.GetProperty("collectionLocator")),Get<int>(req.Params,"propertyId"),ObjectValue(req.Params.GetProperty("value"))),
+            "uia.item_action_by_property" => uia.ItemActionByProperty(Get<long>(req.Params,"rootHwnd"),Locator(req.Params.GetProperty("collectionLocator")),Get<int>(req.Params,"propertyId"),ObjectValue(req.Params.GetProperty("value")),Get<string>(req.Params,"operation")),
             "uia.subscribe" => Subscribe(uia,subscriptions,Get<long>(req.Params,"rootHwnd"),Get<string>(req.Params,"scopeId")),
             "uia.unsubscribe" => Unsubscribe(subscriptions,Get<string>(req.Params,"scopeId")),
             "uia.dirty" => uia.DrainDirty(GetOpt<int?>(req.Params,"max")??512),
@@ -62,6 +65,7 @@ public static class Program
         return new(ErrorCode.native_error,ex.Message,null,ex.ToString());
     }
     static UiaLocator Locator(JsonElement e)=>new(GetOpt<string>(e,"runtimeId"),GetOpt<string>(e,"automationId"),GetOpt<string>(e,"name"),GetOpt<string>(e,"itemStatus"),GetOpt<int?>(e,"controlType"));
+    static object ObjectValue(JsonElement e)=>e.ValueKind switch{JsonValueKind.String=>e.GetString()!,JsonValueKind.Number when e.TryGetInt32(out var i)=>i,JsonValueKind.True=>true,JsonValueKind.False=>false,_=>e.GetRawText()};
     static T Get<T>(JsonElement e,string n)=>e.GetProperty(n).Deserialize<T>(JsonDefaults.Options)!;
     static T? GetOpt<T>(JsonElement e,string n){if(!e.TryGetProperty(n,out var v)||v.ValueKind==JsonValueKind.Null)return default;return v.Deserialize<T>(JsonDefaults.Options);}
     static string? Arg(string[] args,string key){var i=Array.IndexOf(args,key);return i>=0&&i+1<args.Length?args[i+1]:null;}

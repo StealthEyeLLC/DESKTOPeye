@@ -20,7 +20,7 @@
           <Button x:Name="AsyncAction" Margin="8,0" Content="Async Enabled" AutomationProperties.AutomationId="AsyncAction" IsEnabled="False" Click="AsyncAction_Click"/>
         </WrapPanel>
         <WrapPanel Margin="0,4">
-          <Button Content="Open Confirm" AutomationProperties.AutomationId="OpenConfirm" Click="OpenConfirm_Click"/>
+          <Button Content="Continue" AutomationProperties.AutomationId="Continue" Click="OpenConfirm_Click"/>
           <Button Margin="8,0" Content="Replace Control" AutomationProperties.AutomationId="ReplaceControl" Click="ReplaceControl_Click"/>
           <Button Margin="8,0" Content="Recreate Parent" AutomationProperties.AutomationId="RecreateParent" Click="RecreateParent_Click"/>
           <Button Margin="8,0" Content="Navigate Same HWND" AutomationProperties.AutomationId="Navigate" Click="Navigate_Click"/>
@@ -47,6 +47,7 @@
               <ListBox.ItemContainerStyle>
                 <Style TargetType="ListBoxItem">
                   <Setter Property="AutomationProperties.ItemStatus" Value="{Binding Key}"/>
+                  <Setter Property="AutomationProperties.Name" Value="{Binding Key}"/>
                   <Setter Property="AutomationProperties.AutomationId" Value=""/>
                 </Style>
               </ListBox.ItemContainerStyle>

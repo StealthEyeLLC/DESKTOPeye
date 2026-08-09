@@ -14,9 +14,10 @@ public static class Program
     {
         NativeDesktop.EnablePerMonitorDpiV2();
         var session=Process.GetCurrentProcess().SessionId; var pipe=Arg(args,"--pipe")??$"desktopeye-session-{session}"; var runtime=Arg(args,"--runtime")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"StealthEyeLLC","DESKTOPeye","Build001");
+        var hostEpoch=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var workerDll=Arg(args,"--worker-dll")??Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","..","..","..","..","DESKTOPeye.UIA.Worker","bin","Release","net10.0-windows10.0.26100.0","win-x64","DESKTOPeye.UIA.Worker.dll"));
-        Directory.CreateDirectory(runtime); using var native=new NativeDesktop.WinEventObserver(); var epochs=new EpochAllocator(Path.Combine(runtime,"provider-epoch.txt")); await using var workers=new WorkerManager(workerDll,runtime,epochs); var capture=new CaptureProvider(runtime); var host=new SessionService(pipe,runtime,native,workers,capture,epochs);
-        await File.WriteAllTextAsync(Path.Combine(runtime,"session-host.json"),JsonSerializer.Serialize(new{pid=Environment.ProcessId,session,pipe,runtime,workerDll,user=Environment.UserName,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),startedAt=DateTimeOffset.UtcNow},JsonDefaults.Options));
+        Directory.CreateDirectory(runtime); using var native=new NativeDesktop.WinEventObserver(); var epochs=new EpochAllocator(Path.Combine(runtime,"provider-epoch.txt")); await using var workers=new WorkerManager(workerDll,runtime,epochs); var capture=new CaptureProvider(runtime); var host=new SessionService(pipe,runtime,native,workers,capture,epochs,hostEpoch);
+        await File.WriteAllTextAsync(Path.Combine(runtime,"session-host.json"),JsonSerializer.Serialize(new{pid=Environment.ProcessId,session,pipe,runtime,workerDll,user=Environment.UserName,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),hostEpoch,startedAt=DateTimeOffset.UtcNow},JsonDefaults.Options));
         Console.WriteLine(JsonSerializer.Serialize(new{ready=true,pid=Environment.ProcessId,session,pipe,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},JsonDefaults.Options));
         await host.RunAsync(); return 0;
     }
@@ -25,8 +26,8 @@ public static class Program
 
 sealed class SessionService
 {
-    readonly string _pipe,_runtime; readonly NativeDesktop.WinEventObserver _native; readonly WorkerManager _workers; readonly CaptureProvider _capture; readonly EpochAllocator _epochs; long _displayEpoch=1; RectD _lastVirtual; uint _lastDpi;
-    public SessionService(string pipe,string runtime,NativeDesktop.WinEventObserver native,WorkerManager workers,CaptureProvider capture,EpochAllocator epochs){_pipe=pipe;_runtime=runtime;_native=native;_workers=workers;_capture=capture;_epochs=epochs;_lastVirtual=NativeDesktop.VirtualDesktop();_lastDpi=NativeDesktop.GetDpiForSystem();}
+    readonly string _pipe,_runtime; readonly NativeDesktop.WinEventObserver _native; readonly WorkerManager _workers; readonly CaptureProvider _capture; readonly EpochAllocator _epochs; readonly long _hostEpoch; long _displayEpoch=1; RectD _lastVirtual; uint _lastDpi;
+    public SessionService(string pipe,string runtime,NativeDesktop.WinEventObserver native,WorkerManager workers,CaptureProvider capture,EpochAllocator epochs,long hostEpoch){_pipe=pipe;_runtime=runtime;_native=native;_workers=workers;_capture=capture;_epochs=epochs;_hostEpoch=hostEpoch;_lastVirtual=NativeDesktop.VirtualDesktop();_lastDpi=NativeDesktop.GetDpiForSystem();}
     public Task RunAsync()=>PipeRpcServer.RunAsync(_pipe,Dispatch);
     async Task<RpcResponse> Dispatch(RpcRequest req,CancellationToken ct)
     {
@@ -34,7 +35,7 @@ sealed class SessionService
         {
             RefreshDisplayEpoch(); object? result=req.Method switch
             {
-                "hello"=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,sessionId=Process.GetCurrentProcess().SessionId,pipe=_pipe,runtime=_runtime,displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},
+                "hello"=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,pipe=_pipe,runtime=_runtime,displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},
                 "session.current"=>CurrentSession(),
                 "native.snapshot"=>_native.Snapshot(),
                 "native.signals"=>_native.Drain(GetOpt<int?>(req.Params,"max")??1024),
@@ -59,7 +60,7 @@ sealed class SessionService
         catch(NotSupportedException ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.unsupported,ex.Message));}
         catch(Exception ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.native_error,ex.Message,null,ex.ToString()));}
     }
-    object CurrentSession()=>new{machine=Environment.MachineName,user=Environment.UserName,sessionId=Process.GetCurrentProcess().SessionId,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),interactive=Environment.UserInteractive,virtualDesktop=NativeDesktop.VirtualDesktop(),dpi=NativeDesktop.GetDpiForSystem(),displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,workers=_workers.Descriptors};
+    object CurrentSession()=>new{machine=Environment.MachineName,user=Environment.UserName,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),interactive=Environment.UserInteractive,virtualDesktop=NativeDesktop.VirtualDesktop(),dpi=NativeDesktop.GetDpiForSystem(),displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,workers=_workers.Descriptors};
     object EnsureForeground(long hwnd){var ok=NativeDesktop.SetForegroundWindow(new IntPtr(hwnd));var actual=NativeDesktop.GetForegroundWindow().ToInt64();return new{requested=hwnd,apiAccepted=ok,actual,established=actual==hwnd};}
     async Task<object> Uia(RpcRequest req,CancellationToken ct)
     {

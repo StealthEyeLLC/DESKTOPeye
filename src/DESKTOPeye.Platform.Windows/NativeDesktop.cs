@@ -23,6 +23,7 @@ public static class NativeDesktop
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left,Top,Right,Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X,Y; }
     [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO { public int cbSize; public uint flags; public IntPtr hwndActive,hwndFocus,hwndCapture,hwndMenuOwner,hwndMoveSize,hwndCaret; public RECT rcCaret; }
+    [StructLayout(LayoutKind.Sequential)] struct MSG { public IntPtr hwnd; public uint message; public UIntPtr wParam; public IntPtr lParam; public uint time; public POINT pt; public uint lPrivate; }
 
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern uint GetDpiForSystem();
@@ -37,6 +38,7 @@ public static class NativeDesktop
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hwnd,out RECT rect);
     [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd,uint cmd);
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd,uint flags);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint idThread,ref GUITHREADINFO info);
@@ -48,6 +50,12 @@ public static class NativeDesktop
     [DllImport("user32.dll",SetLastError=true,CharSet=CharSet.Unicode)] static extern bool GetUserObjectInformation(IntPtr h,int index,StringBuilder s,uint len,out uint needed);
     [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min,uint max,IntPtr mod,WinEventDelegate cb,uint pid,uint tid,uint flags);
     [DllImport("user32.dll")] static extern bool UnhookWinEvent(IntPtr hook);
+    [DllImport("user32.dll")] static extern int GetMessage(out MSG msg,IntPtr hwnd,uint min,uint max);
+    [DllImport("user32.dll")] static extern bool TranslateMessage(ref MSG msg);
+    [DllImport("user32.dll")] static extern IntPtr DispatchMessage(ref MSG msg);
+    [DllImport("user32.dll")] static extern bool PeekMessage(out MSG msg,IntPtr hwnd,uint min,uint max,uint remove);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool PostThreadMessage(uint threadId,uint msg,UIntPtr wParam,IntPtr lParam);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd,int attr,out int value,int size);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hwnd,int attr,out RECT value,int size);
 
@@ -66,14 +74,59 @@ public static class NativeDesktop
 
     public sealed class WinEventObserver : IDisposable
     {
-        readonly ConcurrentQueue<NativeSignal> _queue=new(); readonly Dictionary<long,long> _generation=new(); readonly List<IntPtr> _hooks=new(); readonly WinEventDelegate _cb; long _seq;
-        public WinEventObserver(){ _cb=OnEvent; foreach(var h in EnumerateTopLevel())_generation[h.ToInt64()]=1; Hook(EVENT_SYSTEM_FOREGROUND,EVENT_SYSTEM_MINIMIZEEND); Hook(EVENT_OBJECT_CREATE,EVENT_OBJECT_LOCATIONCHANGE); }
-        void Hook(uint min,uint max){var h=SetWinEventHook(min,max,IntPtr.Zero,_cb,0,0,WINEVENT_OUTOFCONTEXT|WINEVENT_SKIPOWNPROCESS); if(h!=IntPtr.Zero)_hooks.Add(h);}
-        void OnEvent(IntPtr hook,uint evt,IntPtr hwnd,int obj,int child,uint thread,uint time){ if(hwnd==IntPtr.Zero)return; if(evt>=EVENT_OBJECT_CREATE&&obj!=OBJID_WINDOW&&obj!=-4)return; var key=hwnd.ToInt64(); lock(_generation){ if(evt==EVENT_OBJECT_CREATE){_generation[key]=_generation.TryGetValue(key,out var g)?g+1:1;} if(evt==EVENT_OBJECT_DESTROY&&_generation.TryGetValue(key,out var gd)){ _queue.Enqueue(new NativeSignal(Interlocked.Increment(ref _seq),evt,key,gd,thread,time)); _generation.Remove(key); return;} var gen=_generation.TryGetValue(key,out var cur)?cur:(_generation[key]=1); _queue.Enqueue(new NativeSignal(Interlocked.Increment(ref _seq),evt,key,gen,thread,time)); } }
-        public NativeSignal[] Drain(int max=1024){ var l=new List<NativeSignal>(); while(l.Count<max&&_queue.TryDequeue(out var s))l.Add(s); return l.ToArray(); }
-        public long Generation(long hwnd){lock(_generation)return _generation.TryGetValue(hwnd,out var g)?g:0;}
-        public IReadOnlyList<NativeWindowObservation> Snapshot(){var seq=Interlocked.Increment(ref _seq);var l=new List<NativeWindowObservation>();foreach(var h in EnumerateTopLevel()){var key=h.ToInt64();long g;lock(_generation){if(!_generation.TryGetValue(key,out g))_generation[key]=g=1;}var o=Observe(h,g,seq);if(o!=null)l.Add(o);}return l;}
-        public void Dispose(){foreach(var h in _hooks)UnhookWinEvent(h);_hooks.Clear();}
+        const uint WM_QUIT=0x0012, PM_NOREMOVE=0x0000;
+        readonly ConcurrentQueue<NativeSignal> _queue=new(); readonly HwndGenerationTracker _generations=new(); readonly List<IntPtr> _hooks=new(); readonly WinEventDelegate _cb; readonly ManualResetEventSlim _ready=new(false); readonly Thread _thread; long _seq; uint _loopThreadId; int _disposed;
+        public WinEventObserver()
+        {
+            _cb=OnEvent; _thread=new Thread(MessageLoop){IsBackground=true,Name="DESKTOPeye.WinEvent"}; _thread.Start(); if(!_ready.Wait(TimeSpan.FromSeconds(3)))throw new InvalidOperationException("WinEvent message loop did not initialize");
+        }
+        void MessageLoop()
+        {
+            _loopThreadId=GetCurrentThreadId();
+            try
+            {
+                foreach(var h in EnumerateTopLevel())_generations.DiscoverLive(h.ToInt64());
+                Hook(EVENT_SYSTEM_FOREGROUND,EVENT_SYSTEM_MINIMIZEEND); Hook(EVENT_OBJECT_CREATE,EVENT_OBJECT_LOCATIONCHANGE);
+                PeekMessage(out _,IntPtr.Zero,0,0,PM_NOREMOVE); _ready.Set();
+                while(GetMessage(out var msg,IntPtr.Zero,0,0)>0){TranslateMessage(ref msg);DispatchMessage(ref msg);}
+            }
+            finally
+            {
+                foreach(var h in _hooks)UnhookWinEvent(h);_hooks.Clear();_ready.Set();
+            }
+        }
+        void Hook(uint min,uint max){var h=SetWinEventHook(min,max,IntPtr.Zero,_cb,0,0,WINEVENT_OUTOFCONTEXT|WINEVENT_SKIPOWNPROCESS);if(h!=IntPtr.Zero)_hooks.Add(h);}
+        void OnEvent(IntPtr hook,uint evt,IntPtr hwnd,int obj,int child,uint thread,uint time)
+        {
+            if(hwnd==IntPtr.Zero)return; if(evt>=EVENT_OBJECT_CREATE&&obj!=OBJID_WINDOW&&obj!=-4)return;
+            var key=hwnd.ToInt64();
+            if(evt==EVENT_OBJECT_DESTROY){var deadGen=_generations.Destroy(key);if(deadGen==0)return;_queue.Enqueue(new NativeSignal(Interlocked.Increment(ref _seq),evt,key,deadGen,thread,time));return;}
+            if(evt>=EVENT_OBJECT_CREATE&&GetAncestor(hwnd,2)!=hwnd)return;
+            var gen=evt==EVENT_OBJECT_CREATE?_generations.Create(key):_generations.DiscoverLive(key);
+            _queue.Enqueue(new NativeSignal(Interlocked.Increment(ref _seq),evt,key,gen,thread,time));
+        }
+        public NativeSignal[] Drain(int max=1024){var l=new List<NativeSignal>();while(l.Count<max&&_queue.TryDequeue(out var s))l.Add(s);return l.ToArray();}
+        public long Generation(long hwnd)=>_generations.Current(hwnd);
+        public IReadOnlyList<NativeWindowObservation> Snapshot()
+        {
+            var seq=Interlocked.Increment(ref _seq);var l=new List<NativeWindowObservation>();var current=EnumerateTopLevel();var liveNow=new HashSet<long>();
+            foreach(var h in current){var key=h.ToInt64();liveNow.Add(key);var g=_generations.DiscoverLive(key);var o=Observe(h,g,seq);if(o!=null)l.Add(o);}
+            foreach(var stale in _generations.LiveHandles().Where(h=>!liveNow.Contains(h)).ToArray()){var g=_generations.Destroy(stale);_queue.Enqueue(new NativeSignal(Interlocked.Increment(ref _seq),EVENT_OBJECT_DESTROY,stale,g,0,0));}
+            return l;
+        }
+        public void Dispose()
+        {
+            if(Interlocked.Exchange(ref _disposed,1)!=0)return; if(_loopThreadId!=0)PostThreadMessage(_loopThreadId,WM_QUIT,UIntPtr.Zero,IntPtr.Zero); if(!_thread.Join(2000))throw new InvalidOperationException("WinEvent loop did not terminate");_ready.Dispose();GC.KeepAlive(_cb);
+        }
     }
+}
+public sealed class HwndGenerationTracker
+{
+    readonly object _gate=new(); readonly Dictionary<long,long> _last=new(); readonly HashSet<long> _live=new();
+    public long Create(long hwnd){lock(_gate){if(_live.Contains(hwnd))return _last[hwnd];var next=_last.TryGetValue(hwnd,out var old)?old+1:1;_last[hwnd]=next;_live.Add(hwnd);return next;}}
+    public long DiscoverLive(long hwnd)=>Create(hwnd);
+    public long Destroy(long hwnd){lock(_gate){var gen=_last.TryGetValue(hwnd,out var old)?old:0;_live.Remove(hwnd);return gen;}}
+    public long Current(long hwnd){lock(_gate)return _live.Contains(hwnd)&&_last.TryGetValue(hwnd,out var g)?g:0;}
+    public long[] LiveHandles(){lock(_gate)return _live.ToArray();}
 }
 public sealed record NativeSignal(long Sequence,uint Event,long Hwnd,long Generation,uint ThreadId,uint EventTimeMs);

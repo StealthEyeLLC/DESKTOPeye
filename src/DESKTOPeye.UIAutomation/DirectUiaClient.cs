@@ -30,7 +30,7 @@ public sealed class DirectUiaClient : IDisposable
     {
         var c=_uia.CreateCacheRequest(); c.TreeScope=scope; c.TreeFilter=_uia.ControlViewCondition;
         foreach(var p in new[]{UIA_RuntimeIdPropertyId,UIA_ProcessIdPropertyId,UIA_ControlTypePropertyId,UIA_NamePropertyId,UIA_AutomationIdPropertyId,UIA_ClassNamePropertyId,UIA_ItemStatusPropertyId,UIA_FrameworkIdPropertyId,UIA_NativeWindowHandlePropertyId,UIA_IsEnabledPropertyId,UIA_IsOffscreenPropertyId,UIA_HasKeyboardFocusPropertyId,UIA_BoundingRectanglePropertyId,
-            UIA_IsInvokePatternAvailablePropertyId,UIA_IsValuePatternAvailablePropertyId,UIA_IsSelectionItemPatternAvailablePropertyId,UIA_IsTogglePatternAvailablePropertyId,UIA_IsExpandCollapsePatternAvailablePropertyId,UIA_IsScrollItemPatternAvailablePropertyId,UIA_IsItemContainerPatternAvailablePropertyId,UIA_IsVirtualizedItemPatternAvailablePropertyId}) c.AddProperty(p);
+            UIA_IsInvokePatternAvailablePropertyId,UIA_IsValuePatternAvailablePropertyId,UIA_IsSelectionItemPatternAvailablePropertyId,UIA_IsTogglePatternAvailablePropertyId,UIA_IsExpandCollapsePatternAvailablePropertyId,UIA_IsScrollItemPatternAvailablePropertyId,UIA_IsItemContainerPatternAvailablePropertyId,UIA_IsVirtualizedItemPatternAvailablePropertyId,UIA_ValueValuePropertyId,UIA_SelectionItemIsSelectedPropertyId,UIA_ToggleToggleStatePropertyId,UIA_ExpandCollapseExpandCollapseStatePropertyId}) c.AddProperty(p);
         return c;
     }
     public UiaElementObservation ObserveHandle(long hwnd)
@@ -51,8 +51,8 @@ public sealed class DirectUiaClient : IDisposable
         var root=_uia.ElementFromHandle(new IntPtr(rootHwnd));
         var cache=CreateProjectionCache(TreeScope.TreeScope_Element);
         var arr=root.FindAllBuildCache(TreeScope.TreeScope_Descendants,_uia.ControlViewCondition,cache);
-        var count=Math.Min(arr.Length,Math.Max(1,limit)); var list=new List<UiaElementObservation>();
-        for(var i=0;i<count;i++)
+        var matchLimit=Math.Max(1,limit); var list=new List<UiaElementObservation>();
+        for(var i=0;i<arr.Length&&list.Count<matchLimit;i++)
         {
             var o=SerializeCached(arr.GetElement(i));
             if(name is not null&&!string.Equals(o.Name,name,StringComparison.Ordinal))continue;
@@ -104,9 +104,32 @@ public sealed class DirectUiaClient : IDisposable
     }
     public UiaElementObservation FindItemByProperty(long collectionHwnd,UiaLocator collectionLocator,int propertyId,object value)
     {
-        var c=ResolveElement(collectionHwnd,collectionLocator); var p=(IUIAutomationItemContainerPattern)c.GetCurrentPattern(UIA_ItemContainerPatternId); var item=p.FindItemByProperty(null!,propertyId,value); if(item is null)throw new UiaResolveException("not_found"); return ObserveCurrent(item);
+        var c=ResolveElement(collectionHwnd,collectionLocator); var p=(IUIAutomationItemContainerPattern)c.GetCurrentPattern(UIA_ItemContainerPatternId); var item=p.FindItemByProperty(null!,propertyId,value); if(item is null)throw new UiaResolveException("not_found"); return ObserveItemCandidate(item);
     }
-    public UiaPointResult ClickablePoint(long rootHwnd,UiaLocator locator)
+    public UiaActionReply ItemActionByProperty(long collectionHwnd,UiaLocator collectionLocator,int propertyId,object value,string operation)
+    {
+        var c=ResolveElement(collectionHwnd,collectionLocator); var p=(IUIAutomationItemContainerPattern)c.GetCurrentPattern(UIA_ItemContainerPatternId); var item=p.FindItemByProperty(null!,propertyId,value); if(item is null)throw new UiaResolveException("not_found");
+        if(operation is "realize" or "scroll_into_view" or "select")
+        {
+            try { (item.GetCurrentPattern(UIA_VirtualizedItemPatternId) as IUIAutomationVirtualizedItemPattern)?.Realize(); }
+            catch(COMException ex) when((uint)ex.HResult is 0x80040200 or 0x80040201) { if(operation=="realize") throw; }
+            item=p.FindItemByProperty(null!,propertyId,value)??throw new UiaResolveException("not_found_after_realize");
+        }
+        switch(operation)
+        {
+            case "realize": break;
+            case "scroll_into_view": (item.GetCurrentPattern(UIA_ScrollItemPatternId) as IUIAutomationScrollItemPattern ?? throw new NotSupportedException("scroll_item pattern unavailable")).ScrollIntoView(); break;
+            case "select": (item.GetCurrentPattern(UIA_SelectionItemPatternId) as IUIAutomationSelectionItemPattern ?? throw new NotSupportedException("selection_item pattern unavailable")).Select(); break;
+            default: throw new NotSupportedException(operation);
+        }
+        return new(true,"ok",ObserveCurrent(item),null);
+    }
+    UiaElementObservation ObserveItemCandidate(IUIAutomationElement e)
+    {
+        string SafeString(Func<string> f){try{return f()??"";}catch{return "";}} int SafeInt(Func<int> f,int d=0){try{return f();}catch{return d;}} bool SafeBool(Func<int> f,bool d=false){try{return f()!=0;}catch{return d;}} tagRECT rect;try{rect=e.CurrentBoundingRectangle;}catch{rect=new tagRECT();}
+        var rid="";try{rid=RuntimeId(e);}catch{};var patterns=PatternNames(e);try{e.GetCurrentPattern(UIA_VirtualizedItemPatternId);if(!patterns.Contains("virtualized_item"))patterns=[..patterns,"virtualized_item"];}catch{}
+        return new(rid,SafeInt(()=>e.CurrentProcessId),SafeInt(()=>unchecked((int)e.CurrentNativeWindowHandle.ToInt64())),SafeString(()=>e.CurrentName),SafeString(()=>e.CurrentAutomationId),SafeString(()=>e.CurrentItemStatus),SafeString(()=>e.CurrentFrameworkId),SafeString(()=>e.CurrentClassName),SafeInt(()=>e.CurrentControlType),SafeBool(()=>e.CurrentIsEnabled,true),SafeBool(()=>e.CurrentIsOffscreen,true),SafeBool(()=>e.CurrentHasKeyboardFocus),new RectD(rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top),patterns,_epoch,null,TryString(()=>e.GetCurrentPropertyValue(UIA_ValueValuePropertyId)),TryBool(()=>e.GetCurrentPropertyValue(UIA_SelectionItemIsSelectedPropertyId)),TryInt(()=>e.GetCurrentPropertyValue(UIA_ToggleToggleStatePropertyId)),TryInt(()=>e.GetCurrentPropertyValue(UIA_ExpandCollapseExpandCollapseStatePropertyId)));
+    }    public UiaPointResult ClickablePoint(long rootHwnd,UiaLocator locator)
     {
         var e=ResolveElement(rootHwnd,locator); var pt=new tagPOINT(); var ok=e.GetClickablePoint(out pt)!=0; return new(ok,pt.x,pt.y,ObserveCurrent(e));
     }
@@ -124,13 +147,16 @@ public sealed class DirectUiaClient : IDisposable
     public UiaDirtySignal[] DrainDirty(int max=512){var l=new List<UiaDirtySignal>();while(l.Count<max&&_dirty.TryDequeue(out var d))l.Add(d);return l.ToArray();}
     UiaElementObservation ObserveCurrent(IUIAutomationElement e)
     {
-        var r=e.CurrentBoundingRectangle; return new(RuntimeId(e),e.CurrentProcessId,e.CurrentNativeWindowHandle.ToInt64(),e.CurrentName??"",e.CurrentAutomationId??"",e.CurrentItemStatus??"",e.CurrentFrameworkId??"",e.CurrentClassName??"",e.CurrentControlType,e.CurrentIsEnabled!=0,e.CurrentIsOffscreen!=0,e.CurrentHasKeyboardFocus!=0,new RectD(r.left,r.top,r.right-r.left,r.bottom-r.top),PatternNames(e),_epoch);
+        var r=e.CurrentBoundingRectangle; return new(RuntimeId(e),e.CurrentProcessId,e.CurrentNativeWindowHandle.ToInt64(),e.CurrentName??"",e.CurrentAutomationId??"",e.CurrentItemStatus??"",e.CurrentFrameworkId??"",e.CurrentClassName??"",e.CurrentControlType,e.CurrentIsEnabled!=0,e.CurrentIsOffscreen!=0,e.CurrentHasKeyboardFocus!=0,new RectD(r.left,r.top,r.right-r.left,r.bottom-r.top),PatternNames(e),_epoch,null,TryString(()=>e.GetCurrentPropertyValue(UIA_ValueValuePropertyId)),TryBool(()=>e.GetCurrentPropertyValue(UIA_SelectionItemIsSelectedPropertyId)),TryInt(()=>e.GetCurrentPropertyValue(UIA_ToggleToggleStatePropertyId)),TryInt(()=>e.GetCurrentPropertyValue(UIA_ExpandCollapseExpandCollapseStatePropertyId)));
     }
     UiaElementObservation SerializeCached(IUIAutomationElement e)
     {
-        var r=e.CachedBoundingRectangle; return new(RuntimeId(e),e.CachedProcessId,e.CachedNativeWindowHandle.ToInt64(),e.CachedName??"",e.CachedAutomationId??"",e.CachedItemStatus??"",e.CachedFrameworkId??"",e.CachedClassName??"",e.CachedControlType,e.CachedIsEnabled!=0,e.CachedIsOffscreen!=0,e.CachedHasKeyboardFocus!=0,new RectD(r.left,r.top,r.right-r.left,r.bottom-r.top),PatternNamesCached(e),_epoch);
+        var r=e.CachedBoundingRectangle; return new(RuntimeId(e),e.CachedProcessId,e.CachedNativeWindowHandle.ToInt64(),e.CachedName??"",e.CachedAutomationId??"",e.CachedItemStatus??"",e.CachedFrameworkId??"",e.CachedClassName??"",e.CachedControlType,e.CachedIsEnabled!=0,e.CachedIsOffscreen!=0,e.CachedHasKeyboardFocus!=0,new RectD(r.left,r.top,r.right-r.left,r.bottom-r.top),PatternNamesCached(e),_epoch,null,TryString(()=>e.GetCachedPropertyValue(UIA_ValueValuePropertyId)),TryBool(()=>e.GetCachedPropertyValue(UIA_SelectionItemIsSelectedPropertyId)),TryInt(()=>e.GetCachedPropertyValue(UIA_ToggleToggleStatePropertyId)),TryInt(()=>e.GetCachedPropertyValue(UIA_ExpandCollapseExpandCollapseStatePropertyId)));
     }
     static string RuntimeId(IUIAutomationElement e)=>string.Join(".",e.GetRuntimeId()??Array.Empty<int>());
+    static string? TryString(Func<object> f){try{var v=f();return v is string s?s:null;}catch{return null;}}
+    static bool? TryBool(Func<object> f){try{var v=f();return v is bool b?b:v is int i?i!=0:null;}catch{return null;}}
+    static int? TryInt(Func<object> f){try{var v=f();return v is int i?i:v is Enum e?Convert.ToInt32(e):null;}catch{return null;}}
     static string[] PatternNames(IUIAutomationElement e){var l=new List<string>(); Add(UIA_IsInvokePatternAvailablePropertyId,"invoke");Add(UIA_IsValuePatternAvailablePropertyId,"value");Add(UIA_IsSelectionItemPatternAvailablePropertyId,"selection_item");Add(UIA_IsTogglePatternAvailablePropertyId,"toggle");Add(UIA_IsExpandCollapsePatternAvailablePropertyId,"expand_collapse");Add(UIA_IsScrollItemPatternAvailablePropertyId,"scroll_item");Add(UIA_IsItemContainerPatternAvailablePropertyId,"item_container");Add(UIA_IsVirtualizedItemPatternAvailablePropertyId,"virtualized_item");return l.ToArray(); void Add(int p,string n){try{if(Convert.ToBoolean(e.GetCurrentPropertyValue(p)))l.Add(n);}catch{}}}
     static string[] PatternNamesCached(IUIAutomationElement e){var l=new List<string>(); Add(UIA_IsInvokePatternAvailablePropertyId,"invoke");Add(UIA_IsValuePatternAvailablePropertyId,"value");Add(UIA_IsSelectionItemPatternAvailablePropertyId,"selection_item");Add(UIA_IsTogglePatternAvailablePropertyId,"toggle");Add(UIA_IsExpandCollapsePatternAvailablePropertyId,"expand_collapse");Add(UIA_IsScrollItemPatternAvailablePropertyId,"scroll_item");Add(UIA_IsItemContainerPatternAvailablePropertyId,"item_container");Add(UIA_IsVirtualizedItemPatternAvailablePropertyId,"virtualized_item");return l.ToArray(); void Add(int p,string n){try{if(Convert.ToBoolean(e.GetCachedPropertyValue(p)))l.Add(n);}catch{}}}
     public void Dispose(){lock(_groups){foreach(var g in _groups.ToArray())g.Dispose();_groups.Clear();} try{_uia.RemoveAllEventHandlers();}catch{} if(Marshal.IsComObject(_uia))Marshal.FinalReleaseComObject(_uia);}
