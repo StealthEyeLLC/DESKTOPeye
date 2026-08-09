@@ -1,1 +1,107 @@
-﻿Console.WriteLine("Hello, World!");
+using System.Diagnostics;
+using System.Text.Json;
+using DESKTOPeye.Capture;
+using DESKTOPeye.Input;
+using DESKTOPeye.Platform.Windows;
+using DESKTOPeye.Protocol;
+
+namespace DESKTOPeye.SessionHost;
+
+public static class Program
+{
+    [MTAThread]
+    public static async Task<int> Main(string[] args)
+    {
+        NativeDesktop.EnablePerMonitorDpiV2();
+        var session=Process.GetCurrentProcess().SessionId; var pipe=Arg(args,"--pipe")??$"desktopeye-session-{session}"; var runtime=Arg(args,"--runtime")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"StealthEyeLLC","DESKTOPeye","Build001");
+        var workerDll=Arg(args,"--worker-dll")??Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"..","..","..","..","..","DESKTOPeye.UIA.Worker","bin","Release","net10.0-windows10.0.26100.0","win-x64","DESKTOPeye.UIA.Worker.dll"));
+        Directory.CreateDirectory(runtime); using var native=new NativeDesktop.WinEventObserver(); var epochs=new EpochAllocator(Path.Combine(runtime,"provider-epoch.txt")); await using var workers=new WorkerManager(workerDll,runtime,epochs); var capture=new CaptureProvider(runtime); var host=new SessionService(pipe,runtime,native,workers,capture,epochs);
+        await File.WriteAllTextAsync(Path.Combine(runtime,"session-host.json"),JsonSerializer.Serialize(new{pid=Environment.ProcessId,session,pipe,runtime,workerDll,user=Environment.UserName,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),startedAt=DateTimeOffset.UtcNow},JsonDefaults.Options));
+        Console.WriteLine(JsonSerializer.Serialize(new{ready=true,pid=Environment.ProcessId,session,pipe,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},JsonDefaults.Options));
+        await host.RunAsync(); return 0;
+    }
+    static string? Arg(string[] a,string k){var i=Array.IndexOf(a,k);return i>=0&&i+1<a.Length?a[i+1]:null;}
+}
+
+sealed class SessionService
+{
+    readonly string _pipe,_runtime; readonly NativeDesktop.WinEventObserver _native; readonly WorkerManager _workers; readonly CaptureProvider _capture; readonly EpochAllocator _epochs; long _displayEpoch=1; RectD _lastVirtual; uint _lastDpi;
+    public SessionService(string pipe,string runtime,NativeDesktop.WinEventObserver native,WorkerManager workers,CaptureProvider capture,EpochAllocator epochs){_pipe=pipe;_runtime=runtime;_native=native;_workers=workers;_capture=capture;_epochs=epochs;_lastVirtual=NativeDesktop.VirtualDesktop();_lastDpi=NativeDesktop.GetDpiForSystem();}
+    public Task RunAsync()=>PipeRpcServer.RunAsync(_pipe,Dispatch);
+    async Task<RpcResponse> Dispatch(RpcRequest req,CancellationToken ct)
+    {
+        try
+        {
+            RefreshDisplayEpoch(); object? result=req.Method switch
+            {
+                "hello"=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,sessionId=Process.GetCurrentProcess().SessionId,pipe=_pipe,runtime=_runtime,displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},
+                "session.current"=>CurrentSession(),
+                "native.snapshot"=>_native.Snapshot(),
+                "native.signals"=>_native.Drain(GetOpt<int?>(req.Params,"max")??1024),
+                "native.foreground"=>new{hwnd=NativeDesktop.GetForegroundWindow().ToInt64()},
+                "native.window"=>NativeDesktop.Observe(new IntPtr(Get<long>(req.Params,"hwnd")),_native.Generation(Get<long>(req.Params,"hwnd")),0)??throw new InvalidOperationException("window unavailable"),
+                "native.ensure_foreground"=>EnsureForeground(Get<long>(req.Params,"hwnd")),
+                "workers.status"=>await _workers.StatusAsync(ct),
+                "workers.restart"=>await _workers.RestartAsync(GetOpt<string>(req.Params,"affinity")??"default",ct),
+                "debug.worker_block"=>await _workers.CallAsync(GetOpt<string>(req.Params,"affinity")??"blocked","debug.block",new{milliseconds=GetOpt<int?>(req.Params,"milliseconds")??30000},GetOpt<int?>(req.Params,"deadlineMs")??500,ct),
+                "capture.window"=>await Capture(req.Params,ct),
+                "input.pointer"=>InputExecutor.Click(req.Params.Deserialize<PointerPreflight>(JsonDefaults.Options)!),
+                "input.keyboard"=>InputExecutor.TypeUnicode(req.Params.GetProperty("preflight").Deserialize<KeyboardPreflight>(JsonDefaults.Options)!,Get<string>(req.Params,"text")),
+                _ when req.Method.StartsWith("uia.",StringComparison.Ordinal)=>await Uia(req,ct),
+                _=>throw new NotSupportedException(req.Method)
+            };
+            return new RpcResponse(ProtocolVersion.Current,req.Id,true,JsonDefaults.Element(result),null);
+        }
+        catch(WorkerFaultException wf){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(wf.Timeout?ErrorCode.provider_timeout:ErrorCode.provider_unavailable,wf.Message,null,$"oldEpoch={wf.OldEpoch};newEpoch={wf.NewEpoch};affinity={wf.Affinity}"));}
+        catch(RpcCallException re){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,re.Error);}
+        catch(CaptureException ce){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ce.Code=="protected"?ErrorCode.protected_content:ErrorCode.capture_unavailable,ce.Message));}
+        catch(OperationCanceledException){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.timeout,"deadline"));}
+        catch(NotSupportedException ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.unsupported,ex.Message));}
+        catch(Exception ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.native_error,ex.Message,null,ex.ToString()));}
+    }
+    object CurrentSession()=>new{machine=Environment.MachineName,user=Environment.UserName,sessionId=Process.GetCurrentProcess().SessionId,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),interactive=Environment.UserInteractive,virtualDesktop=NativeDesktop.VirtualDesktop(),dpi=NativeDesktop.GetDpiForSystem(),displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,workers=_workers.Descriptors};
+    object EnsureForeground(long hwnd){var ok=NativeDesktop.SetForegroundWindow(new IntPtr(hwnd));var actual=NativeDesktop.GetForegroundWindow().ToInt64();return new{requested=hwnd,apiAccepted=ok,actual,established=actual==hwnd};}
+    async Task<object> Uia(RpcRequest req,CancellationToken ct)
+    {
+        var affinity=GetOpt<string>(req.Params,"affinity")??(req.Params.TryGetProperty("affinityPid",out var p)?"app-"+p.GetInt32():"default"); var timeout=Math.Min(req.DeadlineMs,GetOpt<int?>(req.Params,"providerDeadlineMs")??2500); return await _workers.CallAsync(affinity,req.Method,req.Params,timeout,ct);
+    }
+    async Task<VisualFrameRef> Capture(JsonElement p,CancellationToken ct)
+    {
+        RectD? crop=null;if(p.TryGetProperty("crop",out var cr)&&cr.ValueKind!=JsonValueKind.Null)crop=cr.Deserialize<RectD>(JsonDefaults.Options);return await _capture.CaptureWindowAsync(Get<string>(p,"sourceConceptId"),Get<long>(p,"hwnd"),Get<long>(p,"nativeIncarnation"),_displayEpoch,Get<long>(p,"worldSequence"),crop,ct);
+    }
+    void RefreshDisplayEpoch(){var v=NativeDesktop.VirtualDesktop();var dpi=NativeDesktop.GetDpiForSystem();if(v!=_lastVirtual||dpi!=_lastDpi){_lastVirtual=v;_lastDpi=dpi;Interlocked.Increment(ref _displayEpoch);_capture.DeviceLost();}}
+    static T Get<T>(JsonElement e,string n)=>e.GetProperty(n).Deserialize<T>(JsonDefaults.Options)!;
+    static T? GetOpt<T>(JsonElement e,string n){if(!e.TryGetProperty(n,out var v)||v.ValueKind==JsonValueKind.Null)return default;return v.Deserialize<T>(JsonDefaults.Options);}
+}
+
+sealed class EpochAllocator
+{
+    readonly string _path; readonly object _gate=new(); long _value; public EpochAllocator(string path){_path=path;Directory.CreateDirectory(Path.GetDirectoryName(path)!);_value=File.Exists(path)&&long.TryParse(File.ReadAllText(path),out var v)?v:DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();}
+    public long Next(){lock(_gate){_value++;File.WriteAllText(_path,_value.ToString());return _value;}}
+}
+
+sealed class WorkerManager : IAsyncDisposable
+{
+    readonly string _dll,_runtime; readonly EpochAllocator _epochs; readonly Dictionary<string,WorkerProcess> _workers=new(StringComparer.Ordinal); readonly object _gate=new(); public IReadOnlyList<ProviderDescriptor> Descriptors{get{lock(_gate)return _workers.Values.Select(x=>x.Descriptor).ToArray();}}
+    public WorkerManager(string dll,string runtime,EpochAllocator epochs){_dll=dll;_runtime=runtime;_epochs=epochs;}
+    async Task<WorkerProcess> Get(string affinity,CancellationToken ct){WorkerProcess? w;lock(_gate)_workers.TryGetValue(affinity,out w);if(w!=null&&w.Alive)return w;w=new WorkerProcess(_dll,_runtime,affinity,_epochs.Next());await w.StartAsync(ct);lock(_gate)_workers[affinity]=w;return w;}
+    public async Task<JsonElement> CallAsync(string affinity,string method,object parameters,int timeout,CancellationToken ct)
+    {
+        var w=await Get(affinity,ct);var old=w.Epoch;try{return await w.CallAsync(method,parameters,timeout,ct);}catch(Exception ex) when(ex is OperationCanceledException or IOException or EndOfStreamException){await w.DisposeAsync();var nw=new WorkerProcess(_dll,_runtime,affinity,_epochs.Next());await nw.StartAsync(CancellationToken.None);lock(_gate)_workers[affinity]=nw;throw new WorkerFaultException(affinity,old,nw.Epoch,ex is OperationCanceledException,$"UIA worker {affinity} recycled after {(ex is OperationCanceledException?"deadline":"failure")}",ex);}
+    }
+    public async Task<object> StatusAsync(CancellationToken ct){var list=new List<object>();WorkerProcess[] ws;lock(_gate)ws=_workers.Values.ToArray();foreach(var w in ws){try{var h=await w.CallAsync("hello",new{},1000,ct);list.Add(new{w.Affinity,w.Epoch,w.ProcessId,health="healthy",hello=h});}catch{list.Add(new{w.Affinity,w.Epoch,w.ProcessId,health="unavailable"});}}return list;}
+    public async Task<object> RestartAsync(string affinity,CancellationToken ct){WorkerProcess? old;lock(_gate)_workers.TryGetValue(affinity,out old);var oldEpoch=old?.Epoch??0;if(old!=null)await old.DisposeAsync();var w=new WorkerProcess(_dll,_runtime,affinity,_epochs.Next());await w.StartAsync(ct);lock(_gate)_workers[affinity]=w;return new{affinity,oldEpoch,newEpoch=w.Epoch,pid=w.ProcessId};}
+    public async ValueTask DisposeAsync(){WorkerProcess[] ws;lock(_gate){ws=_workers.Values.ToArray();_workers.Clear();}foreach(var w in ws)await w.DisposeAsync();}
+}
+
+sealed class WorkerProcess : IAsyncDisposable
+{
+    readonly string _dll,_runtime,_pipe; Process? _p; PipeRpcClient? _client; public string Affinity{get;} public long Epoch{get;} public int ProcessId=>_p?.Id??0; public bool Alive=>_p is {HasExited:false}; public ProviderDescriptor Descriptor=>new(Affinity.GetHashCode(),ProcessId,Epoch,Alive?ProviderHealth.healthy:ProviderHealth.unavailable,Affinity,DateTimeOffset.UtcNow);
+    public WorkerProcess(string dll,string runtime,string affinity,long epoch){_dll=dll;_runtime=runtime;Affinity=affinity;Epoch=epoch;_pipe="desktopeye-uia-"+Sanitize(affinity)+"-"+epoch;}
+    public async Task StartAsync(CancellationToken ct){var psi=new ProcessStartInfo("C:\\Program Files\\dotnet\\dotnet.exe"){Arguments=$"\"{_dll}\" --pipe {_pipe} --epoch {Epoch} --worker-id {Math.Abs(Affinity.GetHashCode())}",UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};_p=Process.Start(psi)??throw new InvalidOperationException("worker start failed");_client=new PipeRpcClient(_pipe);Exception? last=null;for(var i=0;i<30;i++){try{await _client.ConnectAsync(200,ct);await _client.CallAsync("hello",new{},1000,ct);return;}catch(Exception ex){last=ex;await Task.Delay(25,ct);}}throw new InvalidOperationException("worker did not become ready",last);}
+    public Task<JsonElement> CallAsync(string method,object args,int timeout,CancellationToken ct)=>_client!.CallAsync(method,args,timeout,ct);
+    public async ValueTask DisposeAsync(){if(_client!=null)await _client.DisposeAsync();if(_p is {HasExited:false}){try{_p.Kill(true);_p.WaitForExit(1000);}catch{}}_p?.Dispose();}
+    static string Sanitize(string s)=>new(s.Where(char.IsLetterOrDigit).Take(32).ToArray());
+}
+
+sealed class WorkerFaultException:Exception{public string Affinity{get;}public long OldEpoch{get;}public long NewEpoch{get;}public bool Timeout{get;}public WorkerFaultException(string a,long o,long n,bool t,string m,Exception inner):base(m,inner){Affinity=a;OldEpoch=o;NewEpoch=n;Timeout=t;}}
