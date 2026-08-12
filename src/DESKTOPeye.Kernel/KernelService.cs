@@ -10,6 +10,7 @@ internal sealed partial class KernelService
 {
     readonly WorldStore _store;
     readonly PipeRpcClient _session;
+    readonly ShellEyeCorrespondenceClient _shell;
     readonly string _pipe,_runtime;
     readonly ConcurrentDictionary<string,Candidate> _candidates=new(StringComparer.Ordinal);
     readonly ConcurrentQueue<string> _candidateOrder=new();
@@ -23,7 +24,7 @@ internal sealed partial class KernelService
     volatile bool _coldGap;
     public long KernelEpoch=>_kernelEpoch;
 
-    public KernelService(WorldStore store,PipeRpcClient session,string pipe,string runtime){_store=store;_session=session;_pipe=pipe;_runtime=runtime;}
+    public KernelService(WorldStore store,PipeRpcClient session,ShellEyeCorrespondenceClient shell,string pipe,string runtime){_store=store;_session=session;_shell=shell;_pipe=pipe;_runtime=runtime;}
 
     public async Task InitializeAsync()
     {
@@ -155,7 +156,7 @@ internal sealed partial class KernelService
     }
 
     object Hello()=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,kernelEpoch=_kernelEpoch,sessionHostEpoch=_sessionHostEpoch,sessionDesktopEpoch=_sessionDesktopEpoch,desktopEpoch=_desktopEpoch,displayEpoch=_displayEpoch,worldSequence=_store.Head,deltaFloor=_store.DeltaFloor,coldGap=_coldGap,database=_store.Path};
-    async Task<object> RuntimeStatus()=>new{kernel=Hello(),sessionHost=await SessionCall("hello",new{},2000),workers=await SessionCall("workers.status",new{},2500),quickCheck=_store.QuickCheck,journalMode=_store.JournalMode,concepts=_store.ListConcepts(includeRetired:false).Count,interests=_store.ListInterests().Count};
+    async Task<object> RuntimeStatus()=>new{kernel=Hello(),sessionHost=await SessionCall("hello",new{},2000),shelleye=await ShellStatus(),workers=await SessionCall("workers.status",new{},2500),quickCheck=_store.QuickCheck,journalMode=_store.JournalMode,concepts=_store.ListConcepts(includeRetired:false).Count,interests=_store.ListInterests().Count};
     async Task<object> SessionCurrent()
     {
         var s=await RefreshSessionState();
@@ -179,16 +180,23 @@ internal sealed partial class KernelService
 
     async Task<object> AppInstanceQuery(JsonElement p,CancellationToken ct)
     {
-        var app=RequireConcept(Get<string>(p,"app"),ConceptKind.App); var appPath=GetProp<string>(app,"imagePath")??"";
+        var app=RequireConcept(Get<string>(p,"app"),ConceptKind.App);var appPath=GetProp<string>(app,"imagePath")??"";
         foreach(var old in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).Where(x=>x.ParentId==app.Id).ToArray())try{await ReconcileAppInstance(old,ct);}catch{}
-        var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>(); var groups=native.GroupBy(x=>(x.ProcessId,x.ProcessStartFileTime)).Where(g=>g.Key.ProcessStartFileTime!=0&&string.Equals(ProcessImagePath(g.Key.ProcessId),appPath,StringComparison.OrdinalIgnoreCase)).ToArray(); var l=new List<object>();
-        foreach(var g in groups){var ev=Evidence("process_incarnation",new(){["appId"]=app.Id,["processId"]=g.Key.ProcessId.ToString(),["startFileTime"]=g.Key.ProcessStartFileTime.ToString()},"exact process incarnation");var id=CandidateId();var c=new AppInstanceCandidate(id,app.Id,g.Key.ProcessId,g.Key.ProcessStartFileTime,appPath,ev);RememberCandidate(c);l.Add(CandidateView(c));}
+        var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>();
+        var groups=native.GroupBy(x=>(x.ProcessId,x.ProcessStartFileTime)).Where(g=>g.Key.ProcessStartFileTime!=0&&string.Equals(ProcessImagePath(g.Key.ProcessId),appPath,StringComparison.OrdinalIgnoreCase)).ToArray();
+        var l=new List<object>();
+        foreach(var g in groups)
+        {
+            var sessions=g.Select(x=>x.SessionId).Distinct().ToArray();if(sessions.Length!=1)continue;
+            var shell=await ResolveShellProcess(g.Key.ProcessId,g.Key.ProcessStartFileTime,sessions[0],appPath,ct);
+            var ev=Evidence("shelleye_process_incarnation",new(){["appId"]=app.Id,["shelleyeProcessId"]=shell.Id,["bootEpoch"]=shell.BootEpoch,["pid"]=shell.Pid.ToString(),["sequenceNumber"]=shell.SequenceNumber.ToString(),["creationFileTimeUtc"]=shell.CreationFileTimeUtc.ToString(),["sessionId"]=shell.SessionId.ToString()},"exact app-instance process authority supplied by SHELLeye proc_* witness and matched to current desktop manifestation");
+            var id=CandidateId();var c=new AppInstanceCandidate(id,app.Id,g.Key.ProcessId,g.Key.ProcessStartFileTime,appPath,shell,ev);RememberCandidate(c);l.Add(CandidateView(c));
+        }
         return QueryResult(l);
     }
-
     async Task<object> WindowQuery(JsonElement p,ConceptKind requestedKind,CancellationToken ct)
     {
-        var appinst=RequireConcept(Get<string>(p,"appInstance"),ConceptKind.AppInstance); var pid=(uint)(GetProp<long?>(appinst,"processId")??0); var start=GetProp<long?>(appinst,"processStartFileTime")??0; var title=GetOpt<string>(p,"title"); var contains=GetOpt<string>(p,"titleContains"); var aid=GetOpt<string>(p,"automationId"); var ownerId=GetOpt<string>(p,"owner"); long ownerHwnd=0;if(ownerId!=null)ownerHwnd=NativeBinding(RequireConcept(ownerId)).Hwnd;
+        var appinst=RequireConcept(Get<string>(p,"appInstance"),ConceptKind.AppInstance);EnsureMutableIdentity(appinst,false); var pid=(uint)(GetProp<long?>(appinst,"processId")??0); var start=GetProp<long?>(appinst,"processStartFileTime")??0; var title=GetOpt<string>(p,"title"); var contains=GetOpt<string>(p,"titleContains"); var aid=GetOpt<string>(p,"automationId"); var ownerId=GetOpt<string>(p,"owner"); long ownerHwnd=0;if(ownerId!=null)ownerHwnd=NativeBinding(RequireConcept(ownerId)).Hwnd;
         var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>(); var matches=native.Where(n=>n.ProcessId==pid&&n.ProcessStartFileTime==start&&n.Visible&&(title==null||n.Title==title)&&(contains==null||n.Title.Contains(contains,StringComparison.OrdinalIgnoreCase))&&(ownerHwnd==0||n.OwnerHwnd==ownerHwnd)).ToArray(); var candidates=new List<WindowCandidate>();
         foreach(var n in matches)
         {
@@ -229,7 +237,15 @@ internal sealed partial class KernelService
     }
     object RetainAppInstance(AppInstanceCandidate a)
     {
-        var key=$"{a.AppId}|{a.ProcessStartFileTime}";var existing=_store.ListConcepts(ConceptKind.AppInstance,includeRetired:false,stableKey:key).FirstOrDefault();if(existing!=null)return GetConceptResult(existing.Id);var id=LogicalIds.New(ConceptKind.AppInstance);var props=JsonDefaults.Element(new{processId=(long)a.ProcessId,processStartFileTime=a.ProcessStartFileTime,imagePath=a.ImagePath});var c=new LogicalConcept(id,ConceptKind.AppInstance,IdentityStatus.exact,UiState.None,a.AppId,null,key,0,0,null,props,a.Evidence);c=_store.UpsertConcept(c,DeltaKind.ConceptCreated,id);_store.UpsertRelation(a.AppId,"instances",id);_store.UpsertInterest(id,"retained",new{processIncarnation=true});return GetConceptResult(c.Id);
+        var key=$"{a.AppId}|{a.ShellProcess.Id}";var props=JsonDefaults.Element(new{processId=(long)a.ProcessId,processStartFileTime=a.ProcessStartFileTime,imagePath=a.ImagePath,shelleyeProcessId=a.ShellProcess.Id,shellProcess=a.ShellProcess});
+        var existing=_store.ListConcepts(ConceptKind.AppInstance,includeRetired:false,stableKey:key).FirstOrDefault();
+        if(existing!=null)
+        {
+            var identity=existing.Identity is IdentityStatus.exact or IdentityStatus.rebound_exact?IdentityStatus.exact:IdentityStatus.rebound_exact;
+            var next=existing with{Identity=identity,Properties=props,Evidence=a.Evidence};_store.UpsertConcept(next,DeltaKind.BindingChanged,existing.Id,new{identity=identity.ToString(),shelleyeProcessId=a.ShellProcess.Id});
+            _store.UpsertRelation(existing.Id,"shelleye_process",a.ShellProcess.Id);return GetConceptResult(existing.Id);
+        }
+        var id=LogicalIds.New(ConceptKind.AppInstance);var c=new LogicalConcept(id,ConceptKind.AppInstance,IdentityStatus.exact,UiState.None,a.AppId,null,key,0,0,null,props,a.Evidence);c=_store.UpsertConcept(c,DeltaKind.ConceptCreated,id);_store.UpsertRelation(a.AppId,"instances",id);_store.UpsertRelation(id,"shelleye_process",a.ShellProcess.Id);_store.UpsertInterest(id,"retained",new{processIncarnation=true,shelleyeProcessId=a.ShellProcess.Id});return GetConceptResult(c.Id);
     }
     async Task<object> RetainWindow(WindowCandidate w,JsonElement p,CancellationToken ct)
     {
@@ -251,7 +267,7 @@ internal sealed partial class KernelService
     object CandidateView(Candidate c)=>c switch
     {
         AppCandidate a=>new{id=a.Id,kind="app",identity=a.Identity.ToString(),a.Name,a.ImagePath,a.ProcessId,a.ProcessStartFileTime,a.WindowTitle,evidence=a.Evidence},
-        AppInstanceCandidate a=>new{id=a.Id,kind="app_instance",identity=a.Identity.ToString(),app=a.AppId,a.ProcessId,a.ProcessStartFileTime,a.ImagePath,evidence=a.Evidence},
+        AppInstanceCandidate a=>new{id=a.Id,kind="app_instance",identity=a.Identity.ToString(),app=a.AppId,a.ProcessId,a.ProcessStartFileTime,a.ImagePath,shelleyeProcessId=a.ShellProcess.Id,shellProcess=a.ShellProcess,evidence=a.Evidence},
         WindowCandidate w=>new{id=w.Id,kind=w.WindowKind.ToString(),identity=w.Unique?"exact":"ambiguous",appInstance=w.AppInstance,parent=w.Parent,native=w.Native,uia=w.Uia,evidence=w.Evidence},
         UiaCandidate u=>new{id=u.Id,kind=u.UiaKind.ToString(),identity=u.Unique?"exact":"ambiguous",parent=u.Parent,appInstance=u.AppInstanceId,uia=u.Uia,evidence=u.Evidence},
         ItemCandidate i=>new{id=i.Id,kind="item",identity="exact",parent=i.CollectionId,key=i.StableItemKey,uia=i.Uia,evidence=i.Evidence},

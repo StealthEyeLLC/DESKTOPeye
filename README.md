@@ -46,7 +46,7 @@ Build 001 establishes the permanent spine without attempting broad framework cov
 | **C — Recovery Continuity / Identity Killer** | A hostile deterministic suite proves stale-object rejection, provider isolation, and zero observed wrong-target mutations. The primary killer is virtualized container recycling with duplicate visible semantics. |
 | **D — Programmable Desktop Operation** | One Node 24 Program Host invocation performs at least 40 meaningful typed DESKTOPeye operations, targets 50+, branches and waits locally, exercises semantic, visual, pointer, and keyboard paths, and returns one compact result. |
 
-The exact contract is in [docs/02-BUILD-001-SLICE.md](docs/02-BUILD-001-SLICE.md). No milestone is implemented or accepted in this repository state.
+The exact contract is in [docs/02-BUILD-001-SLICE.md](docs/02-BUILD-001-SLICE.md). The Build 001 implementation and acceptance harness are present, including the sparse SHELLeye `appinst_* -> proc_*` process-incarnation seam; measured acceptance has not yet run, so no milestone is accepted yet.
 
 ## Canonical documents
 

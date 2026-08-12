@@ -15,12 +15,12 @@ This directory is test infrastructure for the frozen Build 001 acceptance bounda
 
 | Gate | Required measurement | Interactive desktop required | Primary providers | Evidence |
 | --- | --- | --- | --- | --- |
-| A | persistent correspondence and conservative recovery across kernel death | YES | kernel store, USER32, UIA, Session Host | `gate-A.json`, retained IDs, epochs, identity evidence, sync/gap output |
+| A | persistent correspondence and conservative recovery across kernel death | YES | kernel store, SHELLeye proc_* authority, USER32, UIA, Session Host | `gate-A.json`, retained IDs, epochs, identity evidence, sync/gap output |
 | B | retained/delta-first selective perception, virtualization-safe keyed item continuity | YES | kernel store, UIA, native sentinel | `gate-B.json`, view epochs, retained IDs, bounded deltas |
-| C | all 50 frozen hostile cases with zero hard-failure metrics | YES for the provider-backed suite; selected identity/preflight cases also reuse deterministic noninteractive unit evidence | USER32/DWM, UIA, WGC, input, kernel recovery, fixture oracles | `gate-C.json`, `cases/C01.json` ... `cases/C50.json`, hard metrics |
+| C | all 50 frozen hostile cases with zero hard-failure metrics | YES for the provider-backed suite; selected identity/preflight cases also reuse deterministic noninteractive unit evidence | SHELLeye sparse process correspondence, USER32/DWM, UIA, WGC, input, kernel recovery, fixture oracles | `gate-C.json`, `cases/C01.json` ... `cases/C50.json`, hard metrics |
 | D | canonical Program Host workflow: exactly 60 meaningful typed calls, zero model round trips between primitives | YES | kernel plus all routes exercised by canonical workflow | `gate-D.json`, `program-host-60.json` |
 
-The owner need only unlock/sign into the normal StealthEye Windows desktop. The harness starts and resets the DESKTOPeye scheduled-task topology and controlled fixtures itself.
+The owner need only unlock/sign into the normal StealthEye Windows desktop. The harness first ensures the existing `shelleye-kernel-dev` process-authority task is available, then starts and resets the DESKTOPeye scheduled-task topology and controlled fixtures itself.
 
 ## Interactive session preflight
 
@@ -29,7 +29,7 @@ The C# acceptance executable refuses to proceed unless exactly one non-session-0
 - matching session ID;
 - window station `WinSta0`;
 - input desktop `Default`;
-- `unlocked = true`.
+- `unlocked = true`;`r`n- the existing SHELLeye process-authority task can be started in the same authenticated user context before measured execution.
 
 This explicitly prevents a SYSTEM/session-0 substitute from being treated as acceptance.
 
@@ -51,7 +51,7 @@ The runner:
 
 1. validates the authenticated interactive session;
 2. archives any prior Build 001 acceptance runtime instead of reusing it as evidence;
-3. starts the existing interactive Session Host, kernel, WPF fixture, and Win32 adversary scheduled tasks;
+3. starts/verifies the existing `shelleye-kernel-dev` process-authority task, then starts the interactive DESKTOPeye Session Host, kernel, WPF fixture, and Win32 adversary scheduled tasks;
 4. establishes a known fixture/provider state;
 5. runs gates A, B, all 50 C cases, and D without converting an unfavorable measured outcome into a retry-until-pass loop;
 6. writes bounded evidence under ignored `artifacts/acceptance/build001-*`;
@@ -82,7 +82,7 @@ These remain valid before unlock and should be rerun at the implementation freez
 - all unit tests;
 - deterministic identity tests;
 - SQLite WAL/persistence/reopen/schema tests;
-- pipe/local-program integration tests;
+- pipe/local-program integration tests;`r`n- fake-provider SHELLeye JSON-RPC/process-witness integration tests and sparse-correlation ambiguity tests;
 - input-preflight rejection tests;
 - Node SDK syntax and local single-connection multi-operation test;
 - acceptance manifest enumeration;
@@ -98,4 +98,4 @@ Prior runtime archive root: `C:\ProgramData\StealthEye\DESKTOPeye-acceptance-arc
 
 Dirty-worktree recovery snapshot: `C:\ProgramData\StealthEye\DESKTOPeye-recovery\20260812T0310-0400`.
 
-The harness confines destructive setup/cleanup to the four DESKTOPeye Build 001 scheduled tasks/processes and the controlled fixture/adversary applications. It does not operate arbitrary owner windows as fixture targets.
+The harness confines destructive setup/cleanup to the four DESKTOPeye Build 001 scheduled tasks/processes and the controlled fixture/adversary applications. It uses SHELLeye only through its existing typed `rpc.hello`, `process.retain`, and `process.inspect` surface for exact process-incarnation authority; it does not modify SHELLeye code or absorb its process ontology. It does not operate arbitrary owner windows as fixture targets.

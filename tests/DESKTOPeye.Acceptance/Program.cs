@@ -7,6 +7,7 @@ namespace DESKTOPeye.Acceptance;
 
 internal static class Program
 {
+    const string ShellEyeTaskName="shelleye-kernel-dev";
     static readonly string[] TaskNames=[
         "StealthEye-DESKTOPeye-Build001-Session",
         "StealthEye-DESKTOPeye-Build001-Kernel",
@@ -46,11 +47,11 @@ internal static class Program
         var explorers=Process.GetProcessesByName("explorer").Where(p=>p.SessionId>0).ToArray();
         if(explorers.Length!=1)
         {
-            Emit(new{status="BLOCKED_INTERACTIVE",reason=explorers.Length==0?"no authenticated interactive Explorer desktop exists":"interactive desktop session is ambiguous",explorerSessions=explorers.Select(x=>x.SessionId).Distinct().ToArray(),requires=new[]{"authenticated StealthEye interactive session","WinSta0\\Default input desktop","Session Host in that session"}});
+            Emit(new{status="BLOCKED_INTERACTIVE",reason=explorers.Length==0?"no authenticated interactive Explorer desktop exists":"interactive desktop session is ambiguous",explorerSessions=explorers.Select(x=>x.SessionId).Distinct().ToArray(),requires=new[]{"authenticated StealthEye interactive session","WinSta0\\Default input desktop","SHELLeye process-authority task in that session","Session Host in that session"}});
             return 4;
         }
         var sessionId=explorers[0].SessionId;
-        if(ensureTasks)foreach(var task in TaskNames)await RunProcess("schtasks.exe",$"/Run /TN \"{task}\"",10000);
+        if(ensureTasks){await RunProcess("schtasks.exe",$"/Run /TN \"{ShellEyeTaskName}\"",10000);foreach(var task in TaskNames)await RunProcess("schtasks.exe",$"/Run /TN \"{task}\"",10000);}
         JsonElement? session=null;
         try
         {

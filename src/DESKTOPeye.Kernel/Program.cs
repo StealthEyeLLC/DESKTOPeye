@@ -17,7 +17,8 @@ public static class Program
         using var store=new WorldStore(Path.Combine(runtime,"world.db"));
         await using var session=new PipeRpcClient(sessionPipe);
         await session.ConnectAsync(5000);
-        var service=new KernelService(store,session,pipe,runtime);
+        await using var shell=new ShellEyeCorrespondenceClient();
+        var service=new KernelService(store,session,shell,pipe,runtime);
         await service.InitializeAsync();
         await File.WriteAllTextAsync(Path.Combine(runtime,"kernel.json"),JsonSerializer.Serialize(new
         {

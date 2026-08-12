@@ -43,9 +43,9 @@ internal sealed partial class KernelService
     async Task RecoverRetainedAsync()
     {
         var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},3000)??Array.Empty<NativeWindowObservation>();
-        foreach(var ai in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false))
+        foreach(var ai in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).ToArray())
         {
-            var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;if(!native.Any(n=>n.ProcessId==pid&&n.ProcessStartFileTime==start)){RetireTree(ai.Id,"application_process_incarnation_exited");}
+            try{await ReconcileShellProcessAuthority(ai,native,CancellationToken.None);}catch(Exception ex){MarkAppInstanceUnavailable(ai,$"SHELLeye recovery check failed: {ex.Message}");}
         }
         foreach(var w in _store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog).OrderBy(c=>c.CreatedSequence).ToArray())
             try{await ReconcileWindow(w,native,CancellationToken.None);}catch{}
@@ -82,11 +82,11 @@ internal sealed partial class KernelService
     }
     async Task ReconcileAppInstance(LogicalConcept ai,CancellationToken ct)
     {
-        if(ai.RetiredSequence!=null)return;var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},1800,ct)??Array.Empty<NativeWindowObservation>();if(!native.Any(n=>n.ProcessId==pid&&n.ProcessStartFileTime==start)){RetireTree(ai.Id,"application_process_incarnation_exited");}
+        if(ai.RetiredSequence!=null)return;var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},1800,ct)??Array.Empty<NativeWindowObservation>();await ReconcileShellProcessAuthority(ai,native,ct);
     }
     async Task ReconcileWindow(LogicalConcept w,NativeWindowObservation[]? snapshot,CancellationToken ct)
     {
-        if(w.RetiredSequence!=null)return;var ai=w.AppInstanceId is null?null:_store.GetConcept(w.AppInstanceId);if(ai==null||ai.Identity is IdentityStatus.destroyed or IdentityStatus.stale){if(w.Identity!=IdentityStatus.stale)_store.UpsertConcept(w with{Identity=IdentityStatus.stale},DeltaKind.BindingChanged,w.Id,new{reason="ancestor_not_exact"});return;}
+        if(w.RetiredSequence!=null)return;var ai=w.AppInstanceId is null?null:_store.GetConcept(w.AppInstanceId);if(ai==null||ai.Identity is not (IdentityStatus.exact or IdentityStatus.rebound_exact)){if(w.Identity!=IdentityStatus.stale)_store.UpsertConcept(w with{Identity=IdentityStatus.stale},DeltaKind.BindingChanged,w.Id,new{reason="ancestor_not_exact"});return;}
         snapshot??=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>();var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;
         var oldNb=_store.GetBinding(w.Id,"native"); if(!_coldGap&&oldNb is {Available:true})
         {

@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DESKTOPeye.Protocol\DESKTOPeye.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\DESKTOPeye.Kernel\DESKTOPeye.Kernel.csproj" />
     <ProjectReference Include="..\..\src\DESKTOPeye.World\DESKTOPeye.World.csproj" />
     <ProjectReference Include="..\..\src\DESKTOPeye.Platform.Windows\DESKTOPeye.Platform.Windows.csproj" />
     <ProjectReference Include="..\..\src\DESKTOPeye.UIAutomation\DESKTOPeye.UIAutomation.csproj" />

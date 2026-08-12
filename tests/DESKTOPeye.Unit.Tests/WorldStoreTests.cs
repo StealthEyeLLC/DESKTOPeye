@@ -28,6 +28,15 @@ public class WorldStoreTests
         var rc=reopened.GetConcept("control_x");Assert.NotNull(rc);Assert.Equal(IdentityStatus.exact,rc!.Identity);Assert.Equal("uia:automationId:PrimaryText",rc.StableKey);
         Assert.True(reopened.GetBinding(rc.Id,"uia")!.Available);Assert.Single(reopened.GetRelations(rc.Id,"contains"));Assert.Single(reopened.ListInterests());Assert.Equal(9,reopened.GetLong("session_desktop_epoch"));Assert.Equal(head,reopened.Head);Assert.NotEmpty(reopened.ReadDeltas(0).Deltas);Assert.Equal("ok",reopened.QuickCheck);
     }
+    [Fact] public void SparseSiblingProcessRelationPersistsWithoutMirroringSiblingOntology()
+    {
+        var d=Temp();using(var s=new WorldStore(d))
+        {
+            var ai=s.UpsertConcept(new LogicalConcept("appinst_x",ConceptKind.AppInstance,IdentityStatus.exact,UiState.None,"app_x",null,"app_x|proc_42",0,0,null,JsonDefaults.Element(new{processId=42}),E),DeltaKind.ConceptCreated,"test");
+            s.UpsertRelation(ai.Id,"shelleye_process","proc_42");
+        }
+        using var reopened=new WorldStore(d);var rel=Assert.Single(reopened.GetRelations("appinst_x","shelleye_process"));Assert.Equal("proc_42",rel.TargetId);Assert.Null(reopened.GetConcept("proc_42"));
+    }
     [Fact] public void PersistenceSchemaContainsOnlyCapabilityStateNotGenericActionLedger()
     {
         var d=Temp();using(var s=new WorldStore(d)){}
