@@ -1,0 +1,10 @@
+{
+  "name": "desktopeye-program-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:noninteractive": "node ./test/noninteractive.mjs",
+    "acceptance:build001": "node ./acceptance/build001.mjs",
+    "acceptance:hostile50": "node ./acceptance/hostile50.mjs"
+  }
+}
