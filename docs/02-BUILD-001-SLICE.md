@@ -1,6 +1,6 @@
 # 02 — Build 001 Slice
 
-Status: **PLANNED / IMPLEMENTATION-READY / NOT IMPLEMENTED**
+Status: **IMPLEMENTATION RECOVERY / ACCEPTANCE PREPARATION**
 Architecture: **FROZEN FOR BUILD 001**
 Acceptance: **NOT RUN**
 
@@ -697,13 +697,13 @@ Every item below is explicitly:
 | E-15 | Inspect Common Item Dialog through native/UIA/capture facets after A–D | real-world smoke projection; not core architecture |
 | E-16 | Measure Node 24 named-pipe typed workflow with 40/50/60 calls | protocol batching/result compactness, not identity |
 
-No experiment is authorized or completed by this specification pass.
+The architecture/specification pass itself ran no experiment. The current authorized Build 001 implementation pass may execute these experiments and acceptance gates prospectively; measured results remain non-canonical until recorded under the completion boundary below.
 
 ## 25. Build completion artifacts
 
 Only after all gates pass may an implementation pass add `docs/09-BUILD-001-RESULTS.md`. It must include machine/toolchain versions, case-by-case outcomes, exact zero metrics, benchmark measurements, discovered deviations and canonical decision updates. Until then:
 
 ```text
-Product implementation: NOT STARTED
+Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
 Build 001 acceptance:   NOT RUN
 ```

@@ -1,0 +1,6 @@
+{
+  "name": "desktopeye-program-host",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" }
+}

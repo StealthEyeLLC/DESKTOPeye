@@ -12,8 +12,11 @@ internal sealed partial class KernelService
     readonly PipeRpcClient _session;
     readonly string _pipe,_runtime;
     readonly ConcurrentDictionary<string,Candidate> _candidates=new(StringComparer.Ordinal);
+    readonly ConcurrentQueue<string> _candidateOrder=new();
     readonly ConcurrentDictionary<string,VisualDescriptor> _visual=new(StringComparer.Ordinal);
+    readonly ConcurrentQueue<string> _visualOrder=new();
     readonly ConcurrentDictionary<string,(VisualFrameRef Frame,string WindowId,long NativeGeneration)> _frames=new(StringComparer.Ordinal);
+    readonly ConcurrentQueue<string> _frameOrder=new();
     readonly ConcurrentDictionary<string,long> _eventSubscriptions=new(StringComparer.Ordinal);
     readonly SemaphoreSlim _mutation=new(1,1);
     long _kernelEpoch,_sessionHostEpoch,_desktopEpoch,_displayEpoch;
@@ -149,7 +152,7 @@ internal sealed partial class KernelService
             if(image!=null&&!string.Equals(path,image,StringComparison.OrdinalIgnoreCase))continue;
             if(processName!=null&&!string.Equals(name,processName,StringComparison.OrdinalIgnoreCase))continue;
             if(title!=null&&!g.Any(x=>x.Title==title))continue; if(contains!=null&&!g.Any(x=>x.Title.Contains(contains,StringComparison.OrdinalIgnoreCase)))continue;
-            var appKey=string.IsNullOrEmpty(path)?$"pid-family:{name}":Path.GetFullPath(path).ToLowerInvariant(); var ev=Evidence("application_executable",new(){["imagePath"]=path,["processName"]=name},"query candidate"); var id=CandidateId(); var c=new AppCandidate(id,appKey,name,path,g.Key.ProcessId,g.Key.ProcessStartFileTime,g.First().Title,ev);_candidates[id]=c; list.Add(CandidateView(c));
+            var appKey=string.IsNullOrEmpty(path)?$"pid-family:{name}":Path.GetFullPath(path).ToLowerInvariant(); var ev=Evidence("application_executable",new(){["imagePath"]=path,["processName"]=name},"query candidate"); var id=CandidateId(); var c=new AppCandidate(id,appKey,name,path,g.Key.ProcessId,g.Key.ProcessStartFileTime,g.First().Title,ev);RememberCandidate(c); list.Add(CandidateView(c));
         }
         return QueryResult(list);
     }
@@ -159,7 +162,7 @@ internal sealed partial class KernelService
         var app=RequireConcept(Get<string>(p,"app"),ConceptKind.App); var appPath=GetProp<string>(app,"imagePath")??"";
         foreach(var old in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).Where(x=>x.ParentId==app.Id).ToArray())try{await ReconcileAppInstance(old,ct);}catch{}
         var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>(); var groups=native.GroupBy(x=>(x.ProcessId,x.ProcessStartFileTime)).Where(g=>g.Key.ProcessStartFileTime!=0&&string.Equals(ProcessImagePath(g.Key.ProcessId),appPath,StringComparison.OrdinalIgnoreCase)).ToArray(); var l=new List<object>();
-        foreach(var g in groups){var ev=Evidence("process_incarnation",new(){["appId"]=app.Id,["processId"]=g.Key.ProcessId.ToString(),["startFileTime"]=g.Key.ProcessStartFileTime.ToString()},"exact process incarnation");var id=CandidateId();var c=new AppInstanceCandidate(id,app.Id,g.Key.ProcessId,g.Key.ProcessStartFileTime,appPath,ev);_candidates[id]=c;l.Add(CandidateView(c));}
+        foreach(var g in groups){var ev=Evidence("process_incarnation",new(){["appId"]=app.Id,["processId"]=g.Key.ProcessId.ToString(),["startFileTime"]=g.Key.ProcessStartFileTime.ToString()},"exact process incarnation");var id=CandidateId();var c=new AppInstanceCandidate(id,app.Id,g.Key.ProcessId,g.Key.ProcessStartFileTime,appPath,ev);RememberCandidate(c);l.Add(CandidateView(c));}
         return QueryResult(l);
     }
 
@@ -170,7 +173,7 @@ internal sealed partial class KernelService
         foreach(var n in matches)
         {
             UiaElementObservation? u=null; try{u=await SessionCall<UiaElementObservation>("uia.observe_handle",new{hwnd=n.Hwnd,affinity=$"app-{pid}"},2500,ct);}catch{}
-            if(aid!=null&&(u==null||u.AutomationId!=aid))continue; var kind=requestedKind==ConceptKind.Dialog||n.OwnerHwnd!=0?ConceptKind.Dialog:ConceptKind.Window; var ev=Evidence("native_current_incarnation",new(){["appinst"]=appinst.Id,["hwnd"]=n.Hwnd.ToString(),["generation"]=n.NativeGeneration.ToString(),["processStartFileTime"]=n.ProcessStartFileTime.ToString()},"current native window incarnation");var id=CandidateId();var c=new WindowCandidate(id,kind,appinst.Id,ownerId,n,u,true,ev);_candidates[id]=c;candidates.Add(c);
+            if(aid!=null&&(u==null||u.AutomationId!=aid))continue; var kind=requestedKind==ConceptKind.Dialog||n.OwnerHwnd!=0?ConceptKind.Dialog:ConceptKind.Window; var ev=Evidence("native_current_incarnation",new(){["appinst"]=appinst.Id,["hwnd"]=n.Hwnd.ToString(),["generation"]=n.NativeGeneration.ToString(),["processStartFileTime"]=n.ProcessStartFileTime.ToString()},"current native window incarnation");var id=CandidateId();var c=new WindowCandidate(id,kind,appinst.Id,ownerId,n,u,true,ev);RememberCandidate(c);candidates.Add(c);
         }
         var unique=candidates.Count==1; if(!unique)foreach(var c in candidates)_candidates[c.Id]=c with{Unique=false}; return QueryResult(candidates.Select(c=>CandidateView(unique?c:c with{Unique=false})).Cast<object>().ToList());
     }
@@ -179,7 +182,7 @@ internal sealed partial class KernelService
     {
         var parentId=Get<string>(p,"parent"); var parent=RequireConcept(parentId); if(parent.Kind is not (ConceptKind.Window or ConceptKind.Dialog))throw new KernelException(ErrorCode.unsupported,"control parent must be a retained window/dialog"); var nb=NativeBinding(parent); EnsureMutableIdentity(parent,false); var pid=(int)(GetProp<long?>(RequireConcept(parent.AppInstanceId!),"processId")??0); var affinity=$"app-{pid}";
         var query=new{rootHwnd=nb.Hwnd,affinity,name=GetOpt<string>(p,"name"),automationId=GetOpt<string>(p,"automationId"),itemStatus=GetOpt<string>(p,"itemStatus"),controlType=GetOpt<int?>(p,"controlType"),limit=GetOpt<int?>(p,"limit")??256}; var arr=await SessionCall<UiaElementObservation[]>("uia.query",query,3000,ct)??Array.Empty<UiaElementObservation>(); if(GetOpt<bool?>(p,"visibleOnly")==true)arr=arr.Where(x=>!x.Offscreen&&x.Bounds.Width>0&&x.Bounds.Height>0).ToArray(); var list=new List<UiaCandidate>(); bool unique=arr.Length==1;
-        foreach(var u in arr){var ev=Evidence("same_scope_current_provider_candidate",new(){["parent"]=parent.Id,["providerEpoch"]=u.ProviderEpoch.ToString(),["runtimeId"]=u.RuntimeId,["automationId"]=u.AutomationId},unique?"unique current query candidate":"multiple current candidates");var id=CandidateId();var c=new UiaCandidate(id,kind,parent.Id,parent.AppInstanceId!,nb.Hwnd,u,unique,affinity,ev);_candidates[id]=c;list.Add(c);} return QueryResult(list.Select(CandidateView).Cast<object>().ToList());
+        foreach(var u in arr){var ev=Evidence("same_scope_current_provider_candidate",new(){["parent"]=parent.Id,["providerEpoch"]=u.ProviderEpoch.ToString(),["runtimeId"]=u.RuntimeId,["automationId"]=u.AutomationId},unique?"unique current query candidate":"multiple current candidates");var id=CandidateId();var c=new UiaCandidate(id,kind,parent.Id,parent.AppInstanceId!,nb.Hwnd,u,unique,affinity,ev);RememberCandidate(c);list.Add(c);} return QueryResult(list.Select(CandidateView).Cast<object>().ToList());
     }
 
     async Task<object> ItemFindByKey(JsonElement p,CancellationToken ct)
@@ -188,7 +191,7 @@ internal sealed partial class KernelService
         try
         {
             var u=await SessionCall<UiaElementObservation>("uia.find_item_by_property",new{rootHwnd=root,affinity,collectionLocator=new{runtimeId=obs.RuntimeId},propertyId=30005,value=key},3000,ct)??throw new KernelException(ErrorCode.not_found,"item not found");
-            var ev=Evidence("documented_stable_item_key",new(){["collection"]=collection.Id,["key"]=key,["providerEpoch"]=u.ProviderEpoch.ToString()},"fixture exposes Name as documented durable key"); var id=CandidateId(); var c=new ItemCandidate(id,collection.Id,collection.AppInstanceId!,root,u,key,affinity,ev);_candidates[id]=c;return new{count=1,ambiguous=false,candidates=new[]{CandidateView(c)}};
+            var ev=Evidence("documented_stable_item_key",new(){["collection"]=collection.Id,["key"]=key,["providerEpoch"]=u.ProviderEpoch.ToString()},"fixture exposes Name as documented durable key"); var id=CandidateId(); var c=new ItemCandidate(id,collection.Id,collection.AppInstanceId!,root,u,key,affinity,ev);RememberCandidate(c);return new{count=1,ambiguous=false,candidates=new[]{CandidateView(c)}};
         }
         catch(RpcCallException r) when(r.Error.Code==ErrorCode.not_found){return new{count=0,ambiguous=false,virtualized=true,key,candidates=Array.Empty<object>()};}
     }
@@ -242,7 +245,9 @@ internal sealed partial class KernelService
     LogicalConcept RequireConcept(string id,ConceptKind? kind=null){var c=_store.GetConcept(id)??throw new KernelException(ErrorCode.not_found,$"logical object {id} not found");if(kind!=null&&c.Kind!=kind)throw new KernelException(ErrorCode.unsupported,$"{id} is {c.Kind}, expected {kind}");return c;}
     void EnsureMutableIdentity(LogicalConcept c,bool allowVirtualized){if(c.RetiredSequence!=null||c.Identity==IdentityStatus.destroyed)throw new KernelException(ErrorCode.destroyed,$"{c.Id} destroyed");if(c.Identity==IdentityStatus.ambiguous)throw new KernelException(ErrorCode.ambiguous,$"{c.Id} ambiguous");if(c.Identity==IdentityStatus.stale)throw new KernelException(ErrorCode.stale,$"{c.Id} stale");if(c.Identity==IdentityStatus.virtualized&&!allowVirtualized)throw new KernelException(ErrorCode.virtualized,$"{c.Id} virtualized");if(c.Identity==IdentityStatus.unavailable)throw new KernelException(ErrorCode.unavailable,$"{c.Id} unavailable");}
 
-    string CandidateId()=>"q_"+Guid.NewGuid().ToString("N")[..14];
+    void RememberCandidate(Candidate c){_candidates[c.Id]=c;_candidateOrder.Enqueue(c.Id);while(_candidates.Count>4096&&_candidateOrder.TryDequeue(out var old))_candidates.TryRemove(old,out _);}
+    void RememberVisual(VisualDescriptor d){_visual[d.Id]=d;_visualOrder.Enqueue(d.Id);while(_visual.Count>256&&_visualOrder.TryDequeue(out var old))_visual.TryRemove(old,out _);}
+    void RememberFrame(VisualFrameRef frame,string windowId,long nativeGeneration){_frames[frame.Id]=(frame,windowId,nativeGeneration);_frameOrder.Enqueue(frame.Id);while(_frames.Count>128&&_frameOrder.TryDequeue(out var old))_frames.TryRemove(old,out _);}    string CandidateId()=>"q_"+Guid.NewGuid().ToString("N")[..14];
     IdentityEvidence Evidence(string cls,Dictionary<string,string> w,string note)=>new(cls,w,Array.Empty<string>(),0,_desktopEpoch,note);
     static UiState UiaState(UiaElementObservation u){var s=UiState.None;if(u.Enabled)s|=UiState.Enabled;if(!u.Offscreen)s|=UiState.Visible;else s|=UiState.Offscreen;if(u.HasKeyboardFocus)s|=UiState.Focused;if(u.Selected==true)s|=UiState.Selected;return s;}
     static UiState WindowUiState(NativeWindowObservation n,UiaElementObservation? u){var s=UiState.None;if(n.Visible)s|=UiState.Visible;if(n.Minimized)s|=UiState.Minimized;if(n.Cloaked)s|=UiState.Cloaked;if(u?.Enabled==true)s|=UiState.Enabled;if(u?.HasKeyboardFocus==true)s|=UiState.Focused;return s;}

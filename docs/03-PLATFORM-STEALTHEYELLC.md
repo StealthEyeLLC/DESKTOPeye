@@ -147,6 +147,6 @@ No C++, Rust, Python, PowerShell 7, driver, DLL injection, service, UIAccess dep
 These are platform facts at one observation time. They do not prove UIA provider quality, event completeness, WGC minimized/protected behavior, input targeting, HWND reuse behavior, worker isolation, virtualized-item identity, or recovery. Those remain the explicit Build 001 experiments and acceptance gates in `02-BUILD-001-SLICE.md`.
 
 ```text
-Product implementation: NOT STARTED
+Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
 Build 001 acceptance:   NOT RUN
 ```

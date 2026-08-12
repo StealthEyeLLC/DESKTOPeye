@@ -118,7 +118,7 @@ A frozen decision changes only when implementation produces named evidence that 
 
 ```text
 Architecture:           FINAL / SYNTHESIZED / VERIFIED / FROZEN FOR BUILD 001
-Build 001:              PLANNED / NOT IMPLEMENTED
-Product implementation: NOT STARTED
+Build 001:              IMPLEMENTATION RECOVERY / ACCEPTANCE PREPARATION
+Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
 Build 001 acceptance:   NOT RUN
 ```

@@ -8,14 +8,14 @@
 Thumbs.db
 Desktop.ini
 
-# Future managed/Node build output (no product code exists yet)
+# Managed/Node build output
 bin/
 obj/
 node_modules/
 artifacts/
 TestResults/
 
-# Future local operating state must never be committed
+# Local operating state must never be committed
 *.db
 *.db-shm
 *.db-wal

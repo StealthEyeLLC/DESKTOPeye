@@ -16,6 +16,16 @@ Product implementation: NOT STARTED
 Build 001 acceptance:   NOT RUN
 ```
 
+## Current Build 001 implementation authority — 2026-08-12
+
+Owner direction now authorizes continuation of Build 001 implementation: dirty-worktree recovery, lossless preservation, completion and hardening of the frozen Build 001 design, Program Host and SDK completion, deterministic/noninteractive tests, hostile fixtures, acceptance-harness preparation, and publication of truthful development checkpoints. Interactive measured acceptance is authorized only against a genuine authenticated interactive Windows session. Canonical Build 001 completion is authorized only if the frozen measured acceptance gates actually pass.
+
+This authority does **not** authorize architecture redesign, sibling-Eye redesign or mutation, World Kernel mutation, premature `COMPLETE`/`ACCEPTED` status, or creation of `docs/09-BUILD-001-RESULTS.md` from anything other than actual measured acceptance evidence.
+
+```text
+Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
+Build 001 acceptance:   NOT RUN
+```
 ## Canonical ordering
 
 When documents appear to conflict, use this order:

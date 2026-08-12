@@ -304,6 +304,6 @@ provider stalls reaching kernel or unrelated app scopes = 0
 The pointer and keyboard zeros describe the barrier-controlled suite. They do not assert universal atomic target binding by public Windows input APIs.
 
 ```text
-Product implementation: NOT STARTED
+Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
 Build 001 acceptance:   NOT RUN
 ```
