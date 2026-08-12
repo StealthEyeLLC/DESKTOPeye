@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           expected_base="ce0606d956640283723535f8ee94b5cbe8769e2b"
-          expected_tree="d16e21241089df8ddcc652648aba5114cbf26b56"
+          expected_tree="d16e2124a53cb6369c12d1a0e15c81b70970c619"
           expected_gzip_sha="63236379da569709bf25af103425f122699c70d6adf837cb22514ab09382e3df"
           expected_patch_sha="01aebb57790ff8cb1d5bea325f542a22ae992d077fc5c37753da7ee6e77ca4fd"
 
