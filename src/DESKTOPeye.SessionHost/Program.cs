@@ -26,16 +26,16 @@ public static class Program
 
 sealed class SessionService
 {
-    readonly string _pipe,_runtime; readonly NativeDesktop.WinEventObserver _native; readonly WorkerManager _workers; readonly CaptureProvider _capture; readonly EpochAllocator _epochs; readonly long _hostEpoch; long _displayEpoch=1; RectD _lastVirtual; uint _lastDpi;
-    public SessionService(string pipe,string runtime,NativeDesktop.WinEventObserver native,WorkerManager workers,CaptureProvider capture,EpochAllocator epochs,long hostEpoch){_pipe=pipe;_runtime=runtime;_native=native;_workers=workers;_capture=capture;_epochs=epochs;_hostEpoch=hostEpoch;_lastVirtual=NativeDesktop.VirtualDesktop();_lastDpi=NativeDesktop.GetDpiForSystem();}
+    readonly string _pipe,_runtime; readonly NativeDesktop.WinEventObserver _native; readonly WorkerManager _workers; readonly CaptureProvider _capture; readonly EpochAllocator _epochs; readonly long _hostEpoch; long _desktopEpoch=1,_displayEpoch=1; RectD _lastVirtual; uint _lastDpi; string _lastWindowStation,_lastInputDesktop; bool _lastDesktopAccessible;
+    public SessionService(string pipe,string runtime,NativeDesktop.WinEventObserver native,WorkerManager workers,CaptureProvider capture,EpochAllocator epochs,long hostEpoch){_pipe=pipe;_runtime=runtime;_native=native;_workers=workers;_capture=capture;_epochs=epochs;_hostEpoch=hostEpoch;_lastVirtual=NativeDesktop.VirtualDesktop();_lastDpi=NativeDesktop.GetDpiForSystem();_lastWindowStation=NativeDesktop.WindowStationName();_lastInputDesktop=NativeDesktop.InputDesktopName();_lastDesktopAccessible=_lastInputDesktop!="unavailable";}
     public Task RunAsync()=>PipeRpcServer.RunAsync(_pipe,Dispatch);
     async Task<RpcResponse> Dispatch(RpcRequest req,CancellationToken ct)
     {
         try
         {
-            RefreshDisplayEpoch(); object? result=req.Method switch
+            RefreshSessionEpochs(); object? result=req.Method switch
             {
-                "hello"=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,pipe=_pipe,runtime=_runtime,displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName()},
+                "hello"=>Hello(),
                 "session.current"=>CurrentSession(),
                 "native.snapshot"=>_native.Snapshot(),
                 "native.signals"=>_native.Drain(GetOpt<int?>(req.Params,"max")??1024),
@@ -45,6 +45,7 @@ sealed class SessionService
                 "workers.status"=>await _workers.StatusAsync(ct),
                 "workers.restart"=>await _workers.RestartAsync(GetOpt<string>(req.Params,"affinity")??"default",ct),
                 "debug.worker_block"=>await _workers.CallAsync(GetOpt<string>(req.Params,"affinity")??"blocked","debug.block",new{milliseconds=GetOpt<int?>(req.Params,"milliseconds")??30000},GetOpt<int?>(req.Params,"deadlineMs")??500,ct),
+                "debug.display_epoch_bump"=>DebugDisplayEpochBump(),
                 "capture.window"=>await Capture(req.Params,ct),
                 "input.pointer"=>InputExecutor.Click(req.Params.Deserialize<PointerPreflight>(JsonDefaults.Options)!),
                 "input.keyboard"=>InputExecutor.TypeUnicode(req.Params.GetProperty("preflight").Deserialize<KeyboardPreflight>(JsonDefaults.Options)!,Get<string>(req.Params,"text")),
@@ -60,7 +61,8 @@ sealed class SessionService
         catch(NotSupportedException ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.unsupported,ex.Message));}
         catch(Exception ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.native_error,ex.Message,null,ex.ToString()));}
     }
-    object CurrentSession()=>new{machine=Environment.MachineName,user=Environment.UserName,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,windowStation=NativeDesktop.WindowStationName(),inputDesktop=NativeDesktop.InputDesktopName(),interactive=Environment.UserInteractive,virtualDesktop=NativeDesktop.VirtualDesktop(),dpi=NativeDesktop.GetDpiForSystem(),displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,workers=_workers.Descriptors};
+    object Hello(){var station=NativeDesktop.WindowStationName();var desktop=NativeDesktop.InputDesktopName();var available=desktop!="unavailable";var unlocked=available&&string.Equals(station,"WinSta0",StringComparison.OrdinalIgnoreCase)&&string.Equals(desktop,"Default",StringComparison.OrdinalIgnoreCase);return new{version=ProtocolVersion.Current,pid=Environment.ProcessId,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,pipe=_pipe,runtime=_runtime,desktopEpoch=_desktopEpoch,displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,windowStation=station,inputDesktop=desktop,inputDesktopAvailable=available,locked=!unlocked,unlocked};}
+    object CurrentSession(){var station=NativeDesktop.WindowStationName();var desktop=NativeDesktop.InputDesktopName();var available=desktop!="unavailable";var unlocked=available&&string.Equals(station,"WinSta0",StringComparison.OrdinalIgnoreCase)&&string.Equals(desktop,"Default",StringComparison.OrdinalIgnoreCase);return new{machine=Environment.MachineName,user=Environment.UserName,hostEpoch=_hostEpoch,sessionId=Process.GetCurrentProcess().SessionId,windowStation=station,inputDesktop=desktop,inputDesktopAvailable=available,locked=!unlocked,unlocked,interactive=Environment.UserInteractive,desktopEpoch=_desktopEpoch,virtualDesktop=NativeDesktop.VirtualDesktop(),dpi=NativeDesktop.GetDpiForSystem(),displayEpoch=_displayEpoch,captureEpoch=_capture.CaptureEpoch,workers=_workers.Descriptors};}
     object EnsureForeground(long hwnd){var ok=NativeDesktop.SetForegroundWindow(new IntPtr(hwnd));var actual=NativeDesktop.GetForegroundWindow().ToInt64();return new{requested=hwnd,apiAccepted=ok,actual,established=actual==hwnd};}
     async Task<object> Uia(RpcRequest req,CancellationToken ct)
     {
@@ -70,7 +72,8 @@ sealed class SessionService
     {
         RectD? crop=null;if(p.TryGetProperty("crop",out var cr)&&cr.ValueKind!=JsonValueKind.Null)crop=cr.Deserialize<RectD>(JsonDefaults.Options);return await _capture.CaptureWindowAsync(Get<string>(p,"sourceConceptId"),Get<long>(p,"hwnd"),Get<long>(p,"nativeIncarnation"),_displayEpoch,Get<long>(p,"worldSequence"),crop,ct);
     }
-    void RefreshDisplayEpoch(){var v=NativeDesktop.VirtualDesktop();var dpi=NativeDesktop.GetDpiForSystem();if(v!=_lastVirtual||dpi!=_lastDpi){_lastVirtual=v;_lastDpi=dpi;Interlocked.Increment(ref _displayEpoch);_capture.DeviceLost();}}
+    void RefreshSessionEpochs(){var station=NativeDesktop.WindowStationName();var desktop=NativeDesktop.InputDesktopName();var accessible=desktop!="unavailable";if(!string.Equals(station,_lastWindowStation,StringComparison.Ordinal)||!string.Equals(desktop,_lastInputDesktop,StringComparison.Ordinal)||accessible!=_lastDesktopAccessible){_lastWindowStation=station;_lastInputDesktop=desktop;_lastDesktopAccessible=accessible;Interlocked.Increment(ref _desktopEpoch);_capture.DeviceLost();}var v=NativeDesktop.VirtualDesktop();var dpi=NativeDesktop.GetDpiForSystem();if(v!=_lastVirtual||dpi!=_lastDpi){_lastVirtual=v;_lastDpi=dpi;Interlocked.Increment(ref _displayEpoch);_capture.DeviceLost();}}
+    object DebugDisplayEpochBump(){var value=Interlocked.Increment(ref _displayEpoch);_capture.DeviceLost();return new{displayEpoch=value,captureEpoch=_capture.CaptureEpoch,stimulus="acceptance-test"};}
     static T Get<T>(JsonElement e,string n)=>e.GetProperty(n).Deserialize<T>(JsonDefaults.Options)!;
     static T? GetOpt<T>(JsonElement e,string n){if(!e.TryGetProperty(n,out var v)||v.ValueKind==JsonValueKind.Null)return default;return v.Deserialize<T>(JsonDefaults.Options);}
 }

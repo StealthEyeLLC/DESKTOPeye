@@ -32,7 +32,7 @@ public static partial class WgcCapture
             var tcs=new TaskCompletionSource<Direct3D11CaptureFrame>(TaskCreationOptions.RunContinuationsAsynchronously); int seen=0;
             pool.FrameArrived+=(s,_)=>{Direct3D11CaptureFrame? f=null;try{f=s.TryGetNextFrame();if(f!=null&&!tcs.TrySetResult(f))f.Dispose();}catch(Exception ex){f?.Dispose();tcs.TrySetException(ex);}};
             session.StartCapture();
-            while(true){linked.Token.ThrowIfCancellationRequested();using var frame=await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);var px=CopyFrame(device,context,frame);seen++;if(!IsBlank(px.Pixels)||seen>=5)return px;await Task.Delay(25,linked.Token);tcs=new(TaskCreationOptions.RunContinuationsAsynchronously);}
+            while(true){linked.Token.ThrowIfCancellationRequested();using var frame=await tcs.Task.WaitAsync(linked.Token).ConfigureAwait(false);var px=CopyFrame(device,context,frame);seen++;if(!IsBlank(px.Pixels))return px;if(seen>=5)throw new InvalidOperationException("Windows.Graphics.Capture produced five blank current frames");await Task.Delay(25,linked.Token);tcs=new(TaskCreationOptions.RunContinuationsAsynchronously);}
         }
         finally{(context as IDisposable)?.Dispose();(device as IDisposable)?.Dispose();}
     }

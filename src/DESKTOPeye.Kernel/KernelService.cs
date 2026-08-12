@@ -15,11 +15,11 @@ internal sealed partial class KernelService
     readonly ConcurrentQueue<string> _candidateOrder=new();
     readonly ConcurrentDictionary<string,VisualDescriptor> _visual=new(StringComparer.Ordinal);
     readonly ConcurrentQueue<string> _visualOrder=new();
-    readonly ConcurrentDictionary<string,(VisualFrameRef Frame,string WindowId,long NativeGeneration)> _frames=new(StringComparer.Ordinal);
+    readonly ConcurrentDictionary<string,(VisualFrameRef Frame,string WindowId,long NativeGeneration,long DesktopEpoch)> _frames=new(StringComparer.Ordinal);
     readonly ConcurrentQueue<string> _frameOrder=new();
     readonly ConcurrentDictionary<string,long> _eventSubscriptions=new(StringComparer.Ordinal);
     readonly SemaphoreSlim _mutation=new(1,1);
-    long _kernelEpoch,_sessionHostEpoch,_desktopEpoch,_displayEpoch;
+    long _kernelEpoch,_sessionHostEpoch,_sessionDesktopEpoch,_desktopEpoch,_displayEpoch;
     volatile bool _coldGap;
     public long KernelEpoch=>_kernelEpoch;
 
@@ -30,21 +30,17 @@ internal sealed partial class KernelService
         _kernelEpoch=_store.AdvanceEpoch("kernel_epoch");
         var hello=await SessionCall("hello",new{},5000);
         _sessionHostEpoch=GetLong(hello,"hostEpoch");
+        _sessionDesktopEpoch=GetLong(hello,"desktopEpoch",1);
         _displayEpoch=GetLong(hello,"displayEpoch",1);
         var previousHost=_store.GetLong("session_host_epoch");
+        var previousSessionDesktop=_store.GetLong("session_desktop_epoch");
         _desktopEpoch=_store.GetLong("desktop_epoch",1);
         if(previousHost!=0)
         {
-            if(previousHost!=_sessionHostEpoch)
+            if(previousHost!=_sessionHostEpoch||previousSessionDesktop==0||previousSessionDesktop!=_sessionDesktopEpoch)
             {
                 _coldGap=true; _desktopEpoch=_store.AdvanceEpoch("desktop_epoch");
-                _store.MarkGap("session_host_and_uia_observers_restarted",new[]{"session","native","uia","retained"});
-                foreach(var c in _store.ListConcepts(includeRetired:false).Where(x=>x.Kind is ConceptKind.Window or ConceptKind.Dialog or ConceptKind.Control or ConceptKind.Collection or ConceptKind.Item))
-                {
-                    foreach(var b in _store.GetBindings(c.Id))_store.SetBindingAvailable(c.Id,b.Provider,false);
-                    if(c.Identity is IdentityStatus.exact or IdentityStatus.rebound_exact)
-                        _store.UpsertConcept(c with{Identity=IdentityStatus.stale,Evidence=c.Evidence with{Note="cold observer gap: exact continuity withdrawn"}},DeltaKind.BindingChanged,c.Id,new{identity="stale",reason="cold_observer_gap"});
-                }
+                InvalidateDesktopBindings(previousHost!=_sessionHostEpoch?"session_host_and_uia_observers_restarted":"interactive_desktop_epoch_changed_while_kernel_absent");
             }
             else
             {
@@ -52,11 +48,36 @@ internal sealed partial class KernelService
             }
         }
         _store.SetMeta("session_host_epoch",_sessionHostEpoch.ToString());
+        _store.SetMeta("session_desktop_epoch",_sessionDesktopEpoch.ToString());
         _store.SetMeta("display_epoch",_displayEpoch.ToString());
         await RecoverRetainedAsync();
         await ReconstructFocusAsync();
     }
 
+    void InvalidateDesktopBindings(string reason)
+    {
+        _candidates.Clear();_candidateOrder.Clear();_visual.Clear();_visualOrder.Clear();_frames.Clear();_frameOrder.Clear();_eventSubscriptions.Clear();
+        _store.MarkGap(reason,new[]{"session","native","uia","retained"});
+        foreach(var c in _store.ListConcepts(includeRetired:false).Where(x=>x.Kind is ConceptKind.Window or ConceptKind.Dialog or ConceptKind.Control or ConceptKind.Collection or ConceptKind.Item))
+        {
+            foreach(var b in _store.GetBindings(c.Id))_store.SetBindingAvailable(c.Id,b.Provider,false);
+            if(c.Identity is IdentityStatus.exact or IdentityStatus.rebound_exact)
+                _store.UpsertConcept(c with{Identity=IdentityStatus.stale,Evidence=c.Evidence with{Note=$"desktop/session observation gap: exact continuity withdrawn ({reason})"}},DeltaKind.BindingChanged,c.Id,new{identity="stale",reason});
+        }
+    }
+
+    async Task<JsonElement> RefreshSessionState(CancellationToken ct=default)
+    {
+        var s=await SessionCall("session.current",new{},1800,ct);
+        var hostDesktop=GetLong(s,"desktopEpoch",_sessionDesktopEpoch);
+        if(_sessionDesktopEpoch!=0&&hostDesktop!=_sessionDesktopEpoch)
+        {
+            _sessionDesktopEpoch=hostDesktop;_store.SetMeta("session_desktop_epoch",hostDesktop.ToString());_coldGap=true;_desktopEpoch=_store.AdvanceEpoch("desktop_epoch");InvalidateDesktopBindings("interactive_desktop_epoch_changed");
+        }
+        var de=GetLong(s,"displayEpoch",_displayEpoch);
+        if(de!=_displayEpoch){_displayEpoch=de;_store.SetMeta("display_epoch",de.ToString());_store.AppendDelta(DeltaKind.DisplayChanged,"session",null,new{displayEpoch=de});}
+        return s;
+    }
     public Task RunAsync()
     {
         var pump=ObservationPumpAsync();
@@ -133,14 +154,13 @@ internal sealed partial class KernelService
         catch(Exception ex){return new RpcResponse(ProtocolVersion.Current,req.Id,false,null,new(ErrorCode.native_error,ex.Message,null,ex.ToString()));}
     }
 
-    object Hello()=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,kernelEpoch=_kernelEpoch,sessionHostEpoch=_sessionHostEpoch,desktopEpoch=_desktopEpoch,displayEpoch=_displayEpoch,worldSequence=_store.Head,deltaFloor=_store.DeltaFloor,coldGap=_coldGap,database=_store.Path};
+    object Hello()=>new{version=ProtocolVersion.Current,pid=Environment.ProcessId,kernelEpoch=_kernelEpoch,sessionHostEpoch=_sessionHostEpoch,sessionDesktopEpoch=_sessionDesktopEpoch,desktopEpoch=_desktopEpoch,displayEpoch=_displayEpoch,worldSequence=_store.Head,deltaFloor=_store.DeltaFloor,coldGap=_coldGap,database=_store.Path};
     async Task<object> RuntimeStatus()=>new{kernel=Hello(),sessionHost=await SessionCall("hello",new{},2000),workers=await SessionCall("workers.status",new{},2500),quickCheck=_store.QuickCheck,journalMode=_store.JournalMode,concepts=_store.ListConcepts(includeRetired:false).Count,interests=_store.ListInterests().Count};
     async Task<object> SessionCurrent()
     {
-        var s=await SessionCall("session.current",new{},2000); var de=GetLong(s,"displayEpoch",_displayEpoch); if(de!=_displayEpoch){_displayEpoch=de;_store.SetMeta("display_epoch",de.ToString());_store.AppendDelta(DeltaKind.DisplayChanged,"session",null,new{displayEpoch=de});}
+        var s=await RefreshSessionState();
         return new{session=s,kernelEpoch=_kernelEpoch,desktopEpoch=_desktopEpoch,worldSequence=_store.Head};
     }
-
     async Task<object> AppQuery(JsonElement p,CancellationToken ct)
     {
         var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>();
@@ -247,10 +267,10 @@ internal sealed partial class KernelService
 
     void RememberCandidate(Candidate c){_candidates[c.Id]=c;_candidateOrder.Enqueue(c.Id);while(_candidates.Count>4096&&_candidateOrder.TryDequeue(out var old))_candidates.TryRemove(old,out _);}
     void RememberVisual(VisualDescriptor d){_visual[d.Id]=d;_visualOrder.Enqueue(d.Id);while(_visual.Count>256&&_visualOrder.TryDequeue(out var old))_visual.TryRemove(old,out _);}
-    void RememberFrame(VisualFrameRef frame,string windowId,long nativeGeneration){_frames[frame.Id]=(frame,windowId,nativeGeneration);_frameOrder.Enqueue(frame.Id);while(_frames.Count>128&&_frameOrder.TryDequeue(out var old))_frames.TryRemove(old,out _);}    string CandidateId()=>"q_"+Guid.NewGuid().ToString("N")[..14];
+    void RememberFrame(VisualFrameRef frame,string windowId,long nativeGeneration,long desktopEpoch){_frames[frame.Id]=(frame,windowId,nativeGeneration,desktopEpoch);_frameOrder.Enqueue(frame.Id);while(_frames.Count>128&&_frameOrder.TryDequeue(out var old))_frames.TryRemove(old,out _);}    string CandidateId()=>"q_"+Guid.NewGuid().ToString("N")[..14];
     IdentityEvidence Evidence(string cls,Dictionary<string,string> w,string note)=>new(cls,w,Array.Empty<string>(),0,_desktopEpoch,note);
     static UiState UiaState(UiaElementObservation u){var s=UiState.None;if(u.Enabled)s|=UiState.Enabled;if(!u.Offscreen)s|=UiState.Visible;else s|=UiState.Offscreen;if(u.HasKeyboardFocus)s|=UiState.Focused;if(u.Selected==true)s|=UiState.Selected;return s;}
-    static UiState WindowUiState(NativeWindowObservation n,UiaElementObservation? u){var s=UiState.None;if(n.Visible)s|=UiState.Visible;if(n.Minimized)s|=UiState.Minimized;if(n.Cloaked)s|=UiState.Cloaked;if(u?.Enabled==true)s|=UiState.Enabled;if(u?.HasKeyboardFocus==true)s|=UiState.Focused;return s;}
+    static UiState WindowUiState(NativeWindowObservation n,UiaElementObservation? u){var s=UiState.None;if(n.Visible)s|=UiState.Visible;if(n.Minimized)s|=UiState.Minimized;if(n.Cloaked)s|=UiState.Cloaked;if(n.BlockingPopupHwnd!=0)s|=UiState.ModalBlocked;if(n.Enabled&&u?.Enabled!=false)s|=UiState.Enabled;if(u?.HasKeyboardFocus==true)s|=UiState.Focused;return s;}
     static string ProcessImagePath(uint pid){try{using var p=Process.GetProcessById((int)pid);return p.MainModule?.FileName??"";}catch{return "";}}
     static T? GetProp<T>(LogicalConcept c,string name){if(!c.Properties.TryGetProperty(name,out var e)||e.ValueKind==JsonValueKind.Null)return default;return e.Deserialize<T>(JsonDefaults.Options);}
     static T Get<T>(JsonElement e,string n)=>e.GetProperty(n).Deserialize<T>(JsonDefaults.Options)!;
