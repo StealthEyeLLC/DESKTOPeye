@@ -42,7 +42,7 @@ internal sealed partial class KernelService
 
     async Task RecoverRetainedAsync()
     {
-        var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},3000)??Array.Empty<NativeWindowObservation>();
+        var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},10000)??Array.Empty<NativeWindowObservation>();
         foreach(var ai in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).ToArray())
         {
             try{await ReconcileShellProcessAuthority(ai,native,CancellationToken.None);}catch(Exception ex){MarkAppInstanceUnavailable(ai,$"SHELLeye recovery check failed: {ex.Message}");}

@@ -10,7 +10,7 @@ const arg=(n,d=null)=>{const i=argv.indexOf(n);return i>=0&&i+1<argv.length?argv
 const repo=process.env.DESKTOPEYE_REPO ?? path.resolve(import.meta.dirname,'../..');
 const sessionId=Number(arg('--session','0'));
 const outRoot=path.resolve(arg('--out',path.join(repo,'artifacts','acceptance','build001-'+new Date().toISOString().replaceAll(/[-:.]/g,''))));
-const runtime=path.join(process.env.LOCALAPPDATA ?? 'C:\\Users\\StealthEye\\AppData\\Local','StealthEyeLLC','DESKTOPeye','Build001-acceptance');
+const runtime=process.env.DESKTOPEYE_ACCEPTANCE_RUNTIME ?? 'C:\\Users\\StealthEye\\AppData\\Local\\StealthEyeLLC\\DESKTOPeye\\Build001-acceptance';
 const manifestPath=path.join(repo,'tests','acceptance','manifests','hostile-50.json');
 const manifest=JSON.parse(fs.readFileSync(manifestPath,'utf8'));
 if(manifest.caseCount!==50||manifest.cases?.length!==50)throw new Error('frozen hostile manifest must contain exactly 50 cases');
