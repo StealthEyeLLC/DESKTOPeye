@@ -2,7 +2,7 @@
 
 Status: **FINAL / SYNTHESIZED / VERIFIED / FROZEN FOR BUILD 001**
 Operator: **ChatGPT**
-Product implementation: **NOT STARTED**
+Product implementation: **IMPLEMENTED / PENDING MEASURED ACCEPTANCE**
 
 This is the single canonical DESKTOPeye architecture.
 
@@ -722,7 +722,7 @@ Direct COM is preferred over `System.Windows.Automation`, FlaUI, and other wrapp
 
 ```text
 Architecture:           FINAL / SYNTHESIZED / VERIFIED / FROZEN FOR BUILD 001
-Build 001:              PLANNED / NOT IMPLEMENTED
-Product implementation: NOT STARTED
+Build 001:              IMPLEMENTED / PENDING MEASURED ACCEPTANCE
+Product implementation: IMPLEMENTED / PENDING MEASURED ACCEPTANCE
 Build 001 acceptance:   NOT RUN
 ```

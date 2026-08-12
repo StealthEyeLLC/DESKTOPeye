@@ -1,0 +1,10 @@
+{
+  "name": "desktopeye-program-host",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test:noninteractive": "node test/noninteractive.mjs",
+    "acceptance:build001": "node acceptance/build001.mjs"
+  }
+}

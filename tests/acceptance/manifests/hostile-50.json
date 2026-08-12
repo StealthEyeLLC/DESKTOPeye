@@ -1,0 +1,358 @@
+{
+    "schema":  "desktopeye.build001.hostile.v1",
+    "authority":  "docs/02-BUILD-001-SLICE.md",
+    "caseCount":  50,
+    "generatedFromFrozenAuthority":  true,
+    "cases":  [
+                  {
+                      "id":  1,
+                      "case":  "Observed window A destroyed; later B receives recycled HWND H",
+                      "requiredOutcome":  "A `destroyed`; B gets new window/native incarnation; old A mutation rejected",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  2,
+                      "case":  "Cold gap spans possible HWND H destruction/reuse",
+                      "requiredOutcome":  "no exact rebound from H alone; result stale/ambiguous unless stronger lineage exists",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  3,
+                      "case":  "Two concurrent windows share title, class, geometry and appearance",
+                      "requiredOutcome":  "distinct only by exact generation/owner/app evidence; weak lookup ambiguous",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  4,
+                      "case":  "Exact incumbent operation causes documented HWND recreation",
+                      "requiredOutcome":  "same `window_*` only when operation/strong lineage proves transition; new native incarnation",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  5,
+                      "case":  "Unobserved recreation yields same title/class/geometry",
+                      "requiredOutcome":  "no exact continuity; stale/ambiguous",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  6,
+                      "case":  "Genuine application restart resembles prior run",
+                      "requiredOutcome":  "same `app_*`, new `appinst_*`, all descendant mutations through old IDs rejected",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  7,
+                      "case":  "Native parent/owner is destroyed and replaced",
+                      "requiredOutcome":  "descendant bindings stale/destroyed; no reparent-by-similarity",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  8,
+                      "case":  "Dialog A closes; identical dialog B opens",
+                      "requiredOutcome":  "old A/OK rejected; B untouched",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  9,
+                      "case":  "Two identical dialogs exist simultaneously",
+                      "requiredOutcome":  "exact owner/generation keeps distinct or target is ambiguous; no guessed action",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  10,
+                      "case":  "Modal dialog disables parent",
+                      "requiredOutcome":  "parent controls report `modal_blocked`; mutation refused until modal closes",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  11,
+                      "case":  "Unexpected popup/flyout appears outside retained UIA subtree",
+                      "requiredOutcome":  "session-wide native signal triggers scoped discovery; popup represented without global mirror",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  12,
+                      "case":  "Sibling controls have duplicate visible names",
+                      "requiredOutcome":  "name lookup ambiguous; retained exact target not switched",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  13,
+                      "case":  "Target has no AutomationId",
+                      "requiredOutcome":  "other evidence may retain same-epoch incumbent; no fabricated durable identity",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  14,
+                      "case":  "Siblings have duplicate AutomationId",
+                      "requiredOutcome":  "AutomationId lookup ambiguous; exact mutation refused",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  15,
+                      "case":  "Replacement control reuses AutomationId",
+                      "requiredOutcome":  "old control stale/destroyed; replacement new; no AutomationId rebound alone",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  16,
+                      "case":  "Provider reconstructs same element with a changed RuntimeId",
+                      "requiredOutcome":  "exact rebound only with stronger exact witness; otherwise stale/candidate",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  17,
+                      "case":  "RuntimeId/slug-like witness is reused after provider replacement",
+                      "requiredOutcome":  "old retained object never maps to replacement from RuntimeId alone",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  18,
+                      "case":  "Live UIA reference returns `UIA_E_ELEMENTNOTAVAILABLE`",
+                      "requiredOutcome":  "binding invalidated; realize only if virtual-item contract applies; no blind retry",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  19,
+                      "case":  "Control destroyed/recreated with identical properties",
+                      "requiredOutcome":  "old control rejected; replacement new",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  20,
+                      "case":  "Exact parent subtree is recreated",
+                      "requiredOutcome":  "descendants stale unless independently strong keyed reconstruction under exact new parent is justified",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  21,
+                      "case":  "Same HWND navigates to a replacement semantic page",
+                      "requiredOutcome":  "window may remain; old page controls stale; no tree-path rebound",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  22,
+                      "case":  "Exact target becomes disabled before semantic call",
+                      "requiredOutcome":  "no mutation; typed `disabled`/state result",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  23,
+                      "case":  "Exact target disappears between resolution and semantic call",
+                      "requiredOutcome":  "no fallback target; typed stale/unavailable result",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  24,
+                      "case":  "UIA/WinEvent signal is missing, duplicated, late or reordered",
+                      "requiredOutcome":  "event only marks dirty; scoped current query establishes truth; no false delta history",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  25,
+                      "case":  "Primary killer: A\u0027s recycled container E now represents duplicate-looking B",
+                      "requiredOutcome":  "old A action never touches B; keyed A reacquired or stale/virtualized/ambiguous",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  26,
+                      "case":  "Keyed item changes index after sort",
+                      "requiredOutcome":  "same `item_*`, new representation/view epoch, action reaches keyed item",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  27,
+                      "case":  "Keyed item filtered out then restored",
+                      "requiredOutcome":  "same logical item may be virtualized/unrepresented, then reacquired by key",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  28,
+                      "case":  "Unkeyed duplicate rows reorder after sort/filter",
+                      "requiredOutcome":  "no durable item continuity; old row target ambiguous/stale",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  29,
+                      "case":  "Virtual placeholder invalidated by another `FindItemByProperty`/viewport change",
+                      "requiredOutcome":  "old placeholder not used; re-find by durable key or return virtualized/stale",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  30,
+                      "case":  "`Realize` changes viewport/container materialization",
+                      "requiredOutcome":  "item key remains authority; representation revision advances; no container identity",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  31,
+                      "case":  "Provider exposes selection only for viewport items",
+                      "requiredOutcome":  "selection result states scope/partiality and reconciles keyed selected item where supportable",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  32,
+                      "case":  "Tree node collapse destroys/virtualizes descendants",
+                      "requiredOutcome":  "descendants virtualized/stale; no positional rebound on re-expand",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  33,
+                      "case":  "Pointer target moves before final check",
+                      "requiredOutcome":  "abort `target_moved`; zero click mutation",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  34,
+                      "case":  "Destructive overlay appears before final check",
+                      "requiredOutcome":  "hit/overlay mismatch aborts; underlying/overlay targets untouched",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  35,
+                      "case":  "UIA and native hit tests disagree or child is windowless",
+                      "requiredOutcome":  "no raw click unless route-specific evidence resolves disagreement; otherwise abort",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  36,
+                      "case":  "DPI/display topology/virtual origin changes after point computation",
+                      "requiredOutcome":  "display epoch mismatch aborts stale-coordinate action",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  37,
+                      "case":  "Target is minimized, cloaked, offscreen or materially occluded",
+                      "requiredOutcome":  "state remains distinct; pointer path refused unless current interactability is proven",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  38,
+                      "case":  "Focus thief activates B before final keyboard preflight",
+                      "requiredOutcome":  "`focus_mismatch`; no text reaches B",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  39,
+                      "case":  "Windows denies foreground transfer",
+                      "requiredOutcome":  "`foreground_denied`; no key/pointer injection",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  40,
+                      "case":  "foreground, active, native focus and UIA focus disagree during transition",
+                      "requiredOutcome":  "no typing until declared target focus predicate is current; otherwise abort",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  41,
+                      "case":  "Modifier state/Unicode path plus deterministic post-preflight focus barrier",
+                      "requiredOutcome":  "smallest batch and postcondition measured; wrong recipient is a failure, assurance remains race-bounded",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  42,
+                      "case":  "UIA worker/provider restarts while app stays",
+                      "requiredOutcome":  "provider epoch advances; only strong exact reconstructions rebound; no weak mutation replay",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  43,
+                      "case":  "Cold recovery with no change and strong app/control/item keys",
+                      "requiredOutcome":  "exact supported concepts `rebound_exact` with evidence; cursor gap remains explicit",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  44,
+                      "case":  "Cold gap: A destroyed, indistinguishable B created",
+                      "requiredOutcome":  "A never exact-rebounds; B is candidate/new concept; old mutation rejected",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  45,
+                      "case":  "Delta cursor expires and events are intentionally dropped",
+                      "requiredOutcome":  "explicit `gap`; scoped sync/resnapshot; no silent continuity",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  46,
+                      "case":  "One provider call blocks beyond deadline",
+                      "requiredOutcome":  "worker recycled; kernel and other app scopes responsive; no mutation replay",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  47,
+                      "case":  "Session locks or input desktop switches during pending work",
+                      "requiredOutcome":  "desktop epoch advances; physical work refused; semantic availability reported honestly",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  48,
+                      "case":  "Capture is protected/blank/unavailable or accessible value is protected",
+                      "requiredOutcome":  "explicit protected/unavailable result; no OCR/value fabrication",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  49,
+                      "case":  "Visual-only target is moving or multiple visual candidates are equally valid",
+                      "requiredOutcome":  "current visual revision/uniqueness required; otherwise pointer action refused",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  },
+                  {
+                      "id":  50,
+                      "case":  "`appinst_*` has multiple plausible SHELLeye cohorts or browser/window correlations",
+                      "requiredOutcome":  "sparse link remains ambiguous; target-bound cross-substrate action refused",
+                      "source":  "docs/02-BUILD-001-SLICE.md#19-milestone-c-recovery-continuity--identity-killer",
+                      "measuredStatus":  "NOT_RUN"
+                  }
+              ]
+}

@@ -37,15 +37,15 @@ internal sealed partial class KernelService
     }
     async Task RebindUia(LogicalConcept old,UiaElementObservation u,long root,string affinity,IdentityStatus desired,CancellationToken ct)
     {
-        var actual=old.Identity==IdentityStatus.stale&&old.StableKey!=null?IdentityStatus.rebound_exact:desired;var kp=GetProp<string>(old,"documentedKeyProperty");JsonElement? commands=null;if(old.Properties.TryGetProperty("commands",out var ce)&&ce.ValueKind!=JsonValueKind.Null)commands=ce.Clone();var props=JsonDefaults.Element(new{uia=u,rootHwnd=root,affinity,documentedKeyProperty=kp,commands});var state=UiaState(u);bool changed=old.Identity!=actual||old.State!=state||old.Properties.GetRawText()!=props.GetRawText();var next=old with{Identity=actual,State=state,Properties=props,Evidence=new(actual==IdentityStatus.rebound_exact?"documented_scoped_stable_key_reconstruction":"same_epoch_runtime_incumbent",new(){["runtimeId"]=u.RuntimeId,["providerEpoch"]=u.ProviderEpoch.ToString(),["parent"]=old.ParentId??""},Array.Empty<string>(),u.ProviderEpoch,_desktopEpoch,actual==IdentityStatus.rebound_exact?"reconstructed by declared key under exact ancestor":"current provider incumbent")};if(changed)_store.UpsertConcept(next,DeltaKind.ConceptChanged,old.Id,new{identity=actual,state,value=u.Value,selected=u.Selected});_store.UpsertBinding(old.Id,"uia",u.ProviderEpoch,old.ParentId??old.Id,new{rootHwnd=root,affinity,observation=u},true);await Task.CompletedTask;
+        var actual=old.Identity==IdentityStatus.stale&&old.StableKey!=null?IdentityStatus.rebound_exact:desired;var kp=GetProp<string>(old,"documentedKeyProperty");JsonElement? commands=null;if(old.Properties.TryGetProperty("commands",out var ce)&&ce.ValueKind!=JsonValueKind.Null)commands=ce.Clone();var props=JsonDefaults.Element(new{uia=u,rootHwnd=root,affinity,documentedKeyProperty=kp,commands});var state=UiaState(u);var parent=old.ParentId is null?null:_store.GetConcept(old.ParentId);if(parent!=null&&(parent.State&UiState.ModalBlocked)!=0)state|=UiState.ModalBlocked;bool changed=old.Identity!=actual||old.State!=state||old.Properties.GetRawText()!=props.GetRawText();var next=old with{Identity=actual,State=state,Properties=props,Evidence=new(actual==IdentityStatus.rebound_exact?"documented_scoped_stable_key_reconstruction":"same_epoch_runtime_incumbent",new(){["runtimeId"]=u.RuntimeId,["providerEpoch"]=u.ProviderEpoch.ToString(),["parent"]=old.ParentId??""},Array.Empty<string>(),u.ProviderEpoch,_desktopEpoch,actual==IdentityStatus.rebound_exact?"reconstructed by declared key under exact ancestor":"current provider incumbent")};if(changed)_store.UpsertConcept(next,DeltaKind.ConceptChanged,old.Id,new{identity=actual,state,value=u.Value,selected=u.Selected});_store.UpsertBinding(old.Id,"uia",u.ProviderEpoch,old.ParentId??old.Id,new{rootHwnd=root,affinity,observation=u},true);await Task.CompletedTask;
     }
 
     async Task RecoverRetainedAsync()
     {
         var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},3000)??Array.Empty<NativeWindowObservation>();
-        foreach(var ai in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false))
+        foreach(var ai in _store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).ToArray())
         {
-            var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;if(!native.Any(n=>n.ProcessId==pid&&n.ProcessStartFileTime==start)){RetireTree(ai.Id,"application_process_incarnation_exited");}
+            try{await ReconcileShellProcessAuthority(ai,native,CancellationToken.None);}catch(Exception ex){MarkAppInstanceUnavailable(ai,$"SHELLeye recovery check failed: {ex.Message}");}
         }
         foreach(var w in _store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog).OrderBy(c=>c.CreatedSequence).ToArray())
             try{await ReconcileWindow(w,native,CancellationToken.None);}catch{}
@@ -59,13 +59,34 @@ internal sealed partial class KernelService
         var c=_store.GetConcept(id);if(c==null||c.RetiredSequence!=null)return;foreach(var child in _store.ListConcepts(includeRetired:false).Where(x=>x.ParentId==id||x.AppInstanceId==id).ToArray())RetireTree(child.Id,reason);_store.Retire(id,IdentityStatus.destroyed,reason,id);
     }
 
+    async Task<bool> RefreshModalState(LogicalConcept window,CancellationToken ct)
+    {
+        if(window.Kind is not (ConceptKind.Window or ConceptKind.Dialog))window=RootWindowOf(window);
+        await ReconcileWindow(window,null,ct);window=RequireConcept(window.Id);if(window.RetiredSequence!=null||window.Identity is not (IdentityStatus.exact or IdentityStatus.rebound_exact))return false;
+        var n=NativeBinding(window);bool enabled=true;var ub=_store.GetBinding(window.Id,"uia");if(ub is {Available:true}){try{enabled=UiaObservation(ub).Enabled;}catch{}}
+        var snapshot=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},1800,ct)??Array.Empty<NativeWindowObservation>();
+        var blocked=!enabled&&snapshot.Any(x=>x.Visible&&x.OwnerHwnd==n.Hwnd&&x.ProcessId==n.ProcessId&&x.ProcessStartFileTime==n.ProcessStartFileTime);
+        SetModalFlag(window.Id,blocked);
+        foreach(var c in _store.ListConcepts(includeRetired:false).Where(x=>x.AppInstanceId==window.AppInstanceId&&x.Id!=window.Id&&IsDescendantOf(x,window.Id)).ToArray())SetModalFlag(c.Id,blocked);
+        return blocked;
+    }
+    bool IsDescendantOf(LogicalConcept c,string ancestor)
+    {
+        var seen=new HashSet<string>(StringComparer.Ordinal);var p=c.ParentId;
+        while(p!=null&&seen.Add(p)){if(p==ancestor)return true;p=_store.GetConcept(p)?.ParentId;}
+        return false;
+    }
+    void SetModalFlag(string id,bool blocked)
+    {
+        var c=_store.GetConcept(id);if(c==null||c.RetiredSequence!=null)return;var next=blocked?c.State|UiState.ModalBlocked:c.State&~UiState.ModalBlocked;if(next!=c.State)_store.UpsertConcept(c with{State=next},DeltaKind.ModalChanged,id,new{modalBlocked=blocked});
+    }
     async Task ReconcileAppInstance(LogicalConcept ai,CancellationToken ct)
     {
-        if(ai.RetiredSequence!=null)return;var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},1800,ct)??Array.Empty<NativeWindowObservation>();if(!native.Any(n=>n.ProcessId==pid&&n.ProcessStartFileTime==start)){RetireTree(ai.Id,"application_process_incarnation_exited");}
+        if(ai.RetiredSequence!=null)return;var native=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},1800,ct)??Array.Empty<NativeWindowObservation>();await ReconcileShellProcessAuthority(ai,native,ct);
     }
     async Task ReconcileWindow(LogicalConcept w,NativeWindowObservation[]? snapshot,CancellationToken ct)
     {
-        if(w.RetiredSequence!=null)return;var ai=w.AppInstanceId is null?null:_store.GetConcept(w.AppInstanceId);if(ai==null||ai.Identity is IdentityStatus.destroyed or IdentityStatus.stale){if(w.Identity!=IdentityStatus.stale)_store.UpsertConcept(w with{Identity=IdentityStatus.stale},DeltaKind.BindingChanged,w.Id,new{reason="ancestor_not_exact"});return;}
+        if(w.RetiredSequence!=null)return;var ai=w.AppInstanceId is null?null:_store.GetConcept(w.AppInstanceId);if(ai==null||ai.Identity is not (IdentityStatus.exact or IdentityStatus.rebound_exact)){if(w.Identity!=IdentityStatus.stale)_store.UpsertConcept(w with{Identity=IdentityStatus.stale},DeltaKind.BindingChanged,w.Id,new{reason="ancestor_not_exact"});return;}
         snapshot??=await SessionCall<NativeWindowObservation[]>("native.snapshot",new{},2500,ct)??Array.Empty<NativeWindowObservation>();var pid=(uint)(GetProp<long?>(ai,"processId")??0);var start=GetProp<long?>(ai,"processStartFileTime")??0;
         var oldNb=_store.GetBinding(w.Id,"native"); if(!_coldGap&&oldNb is {Available:true})
         {
@@ -122,9 +143,10 @@ internal sealed partial class KernelService
         {
             try
             {
+                await RefreshSessionState();
                 var signals=await SessionCall<NativeSignalWire[]>("native.signals",new{max=256},1000)??Array.Empty<NativeSignalWire>();if(signals.Length>0)
                 {
-                    var retained=_store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog).ToArray();foreach(var s in signals){var hit=retained.Where(c=>{var b=_store.GetBinding(c.Id,"native");if(b==null)return false;var n=b.Witness.Deserialize<NativeWindowObservation>(JsonDefaults.Options);return n?.Hwnd==s.Hwnd;}).ToArray();foreach(var c in hit)try{await ReconcileScope(c.Id,CancellationToken.None);}catch{}}
+                    var retained=_store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog).ToArray();foreach(var s in signals){var hit=retained.Where(c=>{var b=_store.GetBinding(c.Id,"native");if(b==null)return false;var n=b.Witness.Deserialize<NativeWindowObservation>(JsonDefaults.Options);return n?.Hwnd==s.Hwnd;}).ToArray();if(hit.Length==0){try{await DiscoverUnexpectedNativeWindow(s,CancellationToken.None);}catch{}}else foreach(var c in hit)try{await ReconcileScope(c.Id,CancellationToken.None);}catch{}}
                     _store.AppendDelta(DeltaKind.Reconciled,"native",null,new{dirtySignals=signals.Length});
                 }
                 foreach(var sub in _eventSubscriptions.ToArray())
@@ -137,7 +159,26 @@ internal sealed partial class KernelService
         }
     }
 
-    async Task ReconstructFocusAsync(CancellationToken ct=default)
+
+    async Task DiscoverUnexpectedNativeWindow(NativeSignalWire signal,CancellationToken ct)
+    {
+        NativeWindowObservation? native;
+        try{native=await SessionCall<NativeWindowObservation>("native.window",new{hwnd=signal.Hwnd},1200,ct);}catch{return;}
+        if(native==null||!native.Visible)return;
+        var appinst=_store.ListConcepts(ConceptKind.AppInstance,includeRetired:false).Where(ai=>ai.Identity is IdentityStatus.exact or IdentityStatus.rebound_exact).Where(ai=>(uint)(GetProp<long?>(ai,"processId")??0)==native.ProcessId&&(GetProp<long?>(ai,"processStartFileTime")??0)==native.ProcessStartFileTime).ToArray();
+        if(appinst.Length!=1)return;
+        string? ownerId=null;
+        if(native.OwnerHwnd!=0)
+        {
+            var owners=_store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog).Where(c=>{var b=_store.GetBinding(c.Id,"native");if(b is not {Available:true})return false;var n=b.Witness.Deserialize<NativeWindowObservation>(JsonDefaults.Options);return n?.Hwnd==native.OwnerHwnd;}).ToArray();
+            if(owners.Length==1)ownerId=owners[0].Id;
+        }
+        UiaElementObservation? uia=null;try{uia=await SessionCall<UiaElementObservation>("uia.observe_handle",new{hwnd=native.Hwnd,affinity=$"app-{native.ProcessId}"},1800,ct);}catch{}
+        var kind=native.OwnerHwnd!=0?ConceptKind.Dialog:ConceptKind.Window;
+        var evidence=Evidence("session_native_signal_discovery",new(){["appinst"]=appinst[0].Id,["hwnd"]=native.Hwnd.ToString(),["generation"]=native.NativeGeneration.ToString(),["signalSequence"]=signal.Sequence.ToString()},"unexpected current top-level native manifestation discovered by session sentinel");
+        var candidate=new WindowCandidate("native-signal",kind,appinst[0].Id,ownerId,native,uia,true,evidence);
+        await _mutation.WaitAsync(ct);try{await RetainWindow(candidate,JsonDefaults.Element(new{}),ct);}finally{_mutation.Release();}
+    }    async Task ReconstructFocusAsync(CancellationToken ct=default)
     {
         string? focusedId=null;foreach(var w in _store.ListConcepts(includeRetired:false).Where(c=>c.Kind is ConceptKind.Window or ConceptKind.Dialog&&c.Identity is IdentityStatus.exact or IdentityStatus.rebound_exact))
         {

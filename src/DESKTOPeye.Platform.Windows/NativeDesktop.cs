@@ -31,6 +31,8 @@ public static class NativeDesktop
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb,IntPtr lp);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetLastActivePopup(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
     [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr hwnd,StringBuilder sb,int max);
@@ -67,7 +69,7 @@ public static class NativeDesktop
     public static long ProcessStartFileTime(uint pid){ try{return Process.GetProcessById((int)pid).StartTime.ToUniversalTime().ToFileTimeUtc();}catch{return 0;} }
     public static NativeWindowObservation? Observe(IntPtr hwnd,long generation,long seq)
     {
-        if(hwnd==IntPtr.Zero||!IsWindow(hwnd))return null; var thread=GetWindowThreadProcessId(hwnd,out var pid); var cls=new StringBuilder(512); GetClassName(hwnd,cls,cls.Capacity); var title=new StringBuilder(2048); GetWindowText(hwnd,title,title.Capacity); RECT r; if(DwmGetWindowAttribute(hwnd,DWMWA_EXTENDED_FRAME_BOUNDS,out r,Marshal.SizeOf<RECT>())!=0) GetWindowRect(hwnd,out r); int cloaked=0; DwmGetWindowAttribute(hwnd,DWMWA_CLOAKED,out cloaked,sizeof(int)); var owner=GetWindow(hwnd,GW_OWNER); var parent=GetParent(hwnd); return new NativeWindowObservation(hwnd.ToInt64(),pid,thread,ProcessStartFileTime(pid),generation,cls.ToString(),title.ToString(),owner.ToInt64(),parent.ToInt64(),IsWindowVisible(hwnd),IsIconic(hwnd),cloaked!=0,new RectD(r.Left,r.Top,r.Right-r.Left,r.Bottom-r.Top),Process.GetCurrentProcess().SessionId,InputDesktopName(),seq);
+        if(hwnd==IntPtr.Zero||!IsWindow(hwnd))return null; var thread=GetWindowThreadProcessId(hwnd,out var pid); var cls=new StringBuilder(512); GetClassName(hwnd,cls,cls.Capacity); var title=new StringBuilder(2048); GetWindowText(hwnd,title,title.Capacity); RECT r; if(DwmGetWindowAttribute(hwnd,DWMWA_EXTENDED_FRAME_BOUNDS,out r,Marshal.SizeOf<RECT>())!=0) GetWindowRect(hwnd,out r); int cloaked=0; DwmGetWindowAttribute(hwnd,DWMWA_CLOAKED,out cloaked,sizeof(int)); var owner=GetWindow(hwnd,GW_OWNER); var parent=GetParent(hwnd); var enabled=IsWindowEnabled(hwnd); var popup=!enabled?GetLastActivePopup(hwnd):IntPtr.Zero; if(popup==hwnd||popup==IntPtr.Zero||!IsWindowVisible(popup))popup=IntPtr.Zero; return new NativeWindowObservation(hwnd.ToInt64(),pid,thread,ProcessStartFileTime(pid),generation,cls.ToString(),title.ToString(),owner.ToInt64(),parent.ToInt64(),IsWindowVisible(hwnd),enabled,IsIconic(hwnd),cloaked!=0,popup.ToInt64(),new RectD(r.Left,r.Top,r.Right-r.Left,r.Bottom-r.Top),Process.GetCurrentProcess().SessionId,InputDesktopName(),seq);
     }
     public static IReadOnlyList<IntPtr> EnumerateTopLevel(){ var list=new List<IntPtr>(); EnumWindows((h,_)=>{list.Add(h);return true;},IntPtr.Zero); return list; }
     public static (IntPtr active,IntPtr focus,IntPtr caret) GuiThreadState(uint tid){ var g=new GUITHREADINFO{cbSize=Marshal.SizeOf<GUITHREADINFO>()}; return GetGUIThreadInfo(tid,ref g)?(g.hwndActive,g.hwndFocus,g.hwndCaret):(IntPtr.Zero,IntPtr.Zero,IntPtr.Zero); }

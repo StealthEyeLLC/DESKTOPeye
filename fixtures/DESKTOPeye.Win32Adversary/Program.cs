@@ -20,7 +20,7 @@ public sealed class AdversaryForm : Form
     readonly Button _overlay=new(){Name="Overlay",Text="Overlay",AccessibleName="Destructive Overlay",Size=new(120,44),Location=new(60,70),Visible=false};
     readonly TextBox _focus=new(){Name="FocusTarget",AccessibleName="Focus Target",Size=new(250,30),Location=new(60,160)};
     readonly Label _state=new(){Name="StateLabel",AccessibleName="Adversary State",AutoSize=true,Location=new(60,220),Text="ready"};
-    readonly List<Form> _twins=[]; FocusThiefForm? _thief; HangForm? _hang; NativeTargetForm? _nativeTarget; OracleServer? _oracle;
+    readonly List<Form> _twins=[]; FocusThiefForm? _thief; ForegroundDeniedForm? _foregroundDenied; HangForm? _hang; NativeTargetForm? _nativeTarget; OracleServer? _oracle;
     int _targetHits,_wrongHits,_recreateGeneration,_nativeGeneration,_focusSteals; Point _targetHome=new(60,70);
     public AdversaryForm()
     {
@@ -30,7 +30,7 @@ public sealed class AdversaryForm : Form
     }
     void UpdateState(string reason){_state.Text=$"{reason};target={_targetHits};wrong={_wrongHits};recreate={_recreateGeneration};native={_nativeGeneration};focusSteals={_focusSteals}";}
     void CreateNativeTarget(){_nativeGeneration++;_nativeTarget=new NativeTargetForm(_nativeGeneration){Owner=this};_nativeTarget.Show();}
-    void CloseAux(){foreach(var t in _twins.ToArray())t.Close();_twins.Clear();_thief?.Close();_thief=null;_hang?.Close();_hang=null;_nativeTarget?.Close();_nativeTarget=null;}
+    void CloseAux(){foreach(var t in _twins.ToArray())t.Close();_twins.Clear();_thief?.Close();_thief=null;_foregroundDenied?.Close();_foregroundDenied=null;_hang?.Close();_hang=null;_nativeTarget?.Close();_nativeTarget=null;}
     public AdversaryState Snapshot()=>new(Environment.ProcessId,Handle.ToInt64(),_target.Handle.ToInt64(),_wrong.Handle.ToInt64(),_overlay.Visible?_overlay.Handle.ToInt64():0,_focus.Handle.ToInt64(),_targetHits,_wrongHits,_recreateGeneration,_nativeGeneration,_focusSteals,_target.Left,_target.Top,_wrong.Left,_wrong.Top,_overlay.Visible,_focus.Text,_twins.Select(x=>x.Handle.ToInt64()).ToArray(),_thief?.Handle.ToInt64()??0,_hang?.Handle.ToInt64()??0,_nativeTarget?.Handle.ToInt64()??0,_state.Text);
     public Task<object> Setup(string action)=>InvokeAsync<object>(()=>
     {
@@ -42,7 +42,10 @@ public sealed class AdversaryForm : Form
             case "overlay_off": _overlay.Visible=false;UpdateState("overlay-off");break;
             case "focus_target": Activate();_focus.Focus();UpdateState("focus-target");break;
             case "focus_thief": _thief??=new FocusThiefForm();if(!_thief.Visible)_thief.Show();_thief.Activate();_thief.FocusField();_focusSteals++;UpdateState("focus-stolen");break;
-            case "open_twins": foreach(var t in _twins.ToArray())t.Close();_twins.Clear();for(int i=0;i<2;i++){var f=new Form{Name="TwinWindow",Text="Same Title",AccessibleName="Same Title",Size=new(280,150),StartPosition=FormStartPosition.Manual,Location=new Point(720+i*300,100)};var b=new Button{Name="TwinAction",Text="Action",AccessibleName="Action",Dock=DockStyle.Fill};f.Controls.Add(b);f.Show();_twins.Add(f);}UpdateState("twins-open");break;
+            case "foreground_denial_open": _foregroundDenied??=new ForegroundDeniedForm();if(!_foregroundDenied.Visible)_foregroundDenied.Show();UpdateState("foreground-denial-open");break;
+            case "foreground_denial_close": _foregroundDenied?.Close();_foregroundDenied=null;UpdateState("foreground-denial-close");break;
+            case "coordinate_shift": _target.Location=new Point(_target.Left+45,_target.Top+35);_wrong.Location=new Point(_wrong.Left-30,_wrong.Top+20);UpdateState("coordinate-shift");break;
+            case "open_twins": foreach(var t in _twins.ToArray())t.Close();_twins.Clear();for(int i=0;i<2;i++){var f=new Form{Name="TwinWindow",Text="Same Title",AccessibleName="Same Title",Size=new(280,150),StartPosition=FormStartPosition.Manual,Location=new Point(720,100)};var b=new Button{Name="TwinAction",Text="Action",AccessibleName="Action",Dock=DockStyle.Fill};f.Controls.Add(b);f.Show();_twins.Add(f);}UpdateState("twins-open");break;
             case "close_twins": foreach(var t in _twins.ToArray())t.Close();_twins.Clear();UpdateState("twins-closed");break;
             case "recreate_native": _nativeTarget?.Close();_nativeTarget=null;_recreateGeneration++;CreateNativeTarget();UpdateState("native-recreated");break;
             case "hang_open": _hang??=new HangForm();if(!_hang.Visible)_hang.Show();UpdateState("hang-open");break;
@@ -60,6 +63,13 @@ public sealed class AdversaryForm : Form
 public sealed class NativeTargetForm:Form
 {
     public int Generation{get;} public NativeTargetForm(int generation){Generation=generation;Name="NativeTargetWindow";Text="Adversary Target";AccessibleName="Adversary Target";Size=new(320,160);StartPosition=FormStartPosition.Manual;Location=new Point(760,420);var b=new Button{Name="NativeAction",Text="Native Action",AccessibleName="Native Action",Dock=DockStyle.Fill};Controls.Add(b);}
+}
+public sealed class ForegroundDeniedForm:Form
+{
+    const int WS_EX_NOACTIVATE=0x08000000;
+    public ForegroundDeniedForm(){Name="ForegroundDeniedWindow";Text="Foreground Denied";AccessibleName="Foreground Denied";Size=new(300,120);StartPosition=FormStartPosition.Manual;Location=new Point(1040,650);Controls.Add(new Label{Text="No-activate target",AccessibleName="No-activate target",Dock=DockStyle.Fill});}
+    protected override bool ShowWithoutActivation=>true;
+    protected override CreateParams CreateParams{get{var cp=base.CreateParams;cp.ExStyle|=WS_EX_NOACTIVATE;return cp;}}
 }
 public sealed class FocusThiefForm:Form
 {
