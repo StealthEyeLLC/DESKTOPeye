@@ -30,7 +30,7 @@ jobs:
             local patch_file="$1"
             local subject="$2"
             local local_sha="$3"
-            base64 -d "$patch_file" | gzip -d > /tmp/desktopeye.patch
+            python3 -c 'import base64,gzip,pathlib,sys; p=pathlib.Path(sys.argv[1]); pathlib.Path("/tmp/desktopeye.patch").write_bytes(gzip.decompress(base64.b64decode(p.read_text(encoding="utf-8-sig"))))' "$patch_file"
             git apply --index --binary /tmp/desktopeye.patch
             git commit -m "$subject" -m "Provider reconstruction of preserved local checkpoint $local_sha."
           }
