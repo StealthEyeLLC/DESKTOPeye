@@ -5,7 +5,7 @@ on:
     branches:
       - build/build001-acceptance-completion
     paths:
-      - .provider-publish2/READY
+      - .provider-publish/READY
 
 permissions:
   contents: write
@@ -14,49 +14,40 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Reconstruct audited local checkpoints
+      - name: Reconstruct audited local freeze
         shell: bash
         run: |
           set -euo pipefail
+          expected_base="ce0606d956640283723535f8ee94b5cbe8769e2b"
+          expected_tree="d16e21241089df8ddcc652648aba5114cbf26b56"
+          expected_gzip_sha="6b33372ed41a1f10af540e8d03f1f56e16f17f15c6758c7587caacea9d8e49e8"
+
+          python3 - <<'PY'
+          import base64, pathlib
+          parts = sorted(pathlib.Path('.provider-publish').glob('final-*.b64url'))
+          if len(parts) != 5:
+              raise SystemExit(f'expected 5 payload chunks, found {len(parts)}')
+          text = ''.join(p.read_text(encoding='ascii').strip() for p in parts)
+          text += '=' * ((4 - len(text) % 4) % 4)
+          pathlib.Path('/tmp/final.patch.gz').write_bytes(base64.urlsafe_b64decode(text))
+          PY
+          test "$(sha256sum /tmp/final.patch.gz | awk '{print $1}')" = "$expected_gzip_sha"
+          gzip -dc /tmp/final.patch.gz > /tmp/final.patch
+
           git config user.name "StealthEye Build Publication"
           git config user.email "build-publication@users.noreply.github.com"
 
-          apply_checkpoint() {
-            local prefix="$1"
-            local subject="$2"
-            local local_sha="$3"
-            local expected_patch_sha="$4"
-            python3 - "$prefix" "$expected_patch_sha" <<'PY'
-          import base64, glob, gzip, hashlib, pathlib, sys
-          prefix = sys.argv[1]
-          expected = sys.argv[2]
-          parts = sorted(glob.glob(f".provider-publish2/{prefix}.gzchunk.*.b64"))
-          if not parts:
-              raise SystemExit(f"no chunks for {prefix}")
-          text = "".join(pathlib.Path(p).read_text(encoding="ascii") for p in parts)
-          raw = gzip.decompress(base64.b64decode(text, validate=True))
-          actual = hashlib.sha256(raw).hexdigest()
-          if actual != expected:
-              raise SystemExit(f"patch checksum mismatch for {prefix}: {actual} != {expected}")
-          pathlib.Path("/tmp/desktopeye.patch").write_bytes(raw)
-          PY
-            git apply --check --binary /tmp/desktopeye.patch
-            git apply --index --binary /tmp/desktopeye.patch
-            git commit -m "$subject" -m "Provider reconstruction of preserved local checkpoint $local_sha."
-          }
-
-          apply_checkpoint 01-recovery "Recover active Build 001 implementation worktree" "0df809f" "98b762ae3577daae910ce9e0e5a7a897e36262dafdc8d85ef46431433fe851f8"
-          apply_checkpoint 02-hardening "Complete DESKTOPeye session-boundary hardening" "1e4be48" "edd5355f9c1c0c481dfecb2815a58990523e8bf8cdd422caafcfe518e73e9120"
-          apply_checkpoint 03-acceptance "Prepare interactive Build 001 acceptance harness" "e6a9336" "c41a564604fecc638d90273ea5359ee3a44a986a90aef9fcf43e8e38abfc7476"
-
-          git rm -r .provider-publish .provider-publish2 .github/workflows/desktopeye-provider-publish.yml
-          expected_tree="1c05e1732a98236785f99abc6d317d227628a4b7"
+          git read-tree --reset -u "$expected_base"
+          git apply --check --binary /tmp/final.patch
+          git apply --index --binary /tmp/final.patch
           actual_tree="$(git write-tree)"
           test "$actual_tree" = "$expected_tree"
-          git commit -m "Remove temporary DESKTOPeye provider publication scaffolding" -m "Final provider tree verified against local implementation freeze $expected_tree."
+
+          git commit -m "Complete DESKTOPeye noninteractive Build 001 acceptance preparation" \
+            -m "Provider reconstruction of local implementation freeze 80cee3ec34efaf4dc1a636de8c560387494f36b6."
           test "$(git rev-parse HEAD^{tree})" = "$expected_tree"
           git push origin HEAD:build/build001-acceptance-completion
