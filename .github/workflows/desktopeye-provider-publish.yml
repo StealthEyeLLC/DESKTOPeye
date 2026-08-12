@@ -1,0 +1,48 @@
+name: DESKTOPeye provider publication
+
+on:
+  push:
+    branches:
+      - build/build001-acceptance-completion
+    paths:
+      - .provider-publish/READY
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct audited local checkpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD~0^{tree})" != "1c05e1732a98236785f99abc6d317d227628a4b7"
+          git config user.name "StealthEye Build Publication"
+          git config user.email "build-publication@users.noreply.github.com"
+
+          apply_checkpoint() {
+            local patch_file="$1"
+            local subject="$2"
+            local local_sha="$3"
+            base64 -d "$patch_file" | gzip -d > /tmp/desktopeye.patch
+            git apply --index --binary /tmp/desktopeye.patch
+            git commit -m "$subject" -m "Provider reconstruction of preserved local checkpoint $local_sha."
+          }
+
+          apply_checkpoint .provider-publish/01-recovery.patch.gz.b64 "Recover active Build 001 implementation worktree" "0df809f"
+          apply_checkpoint .provider-publish/02-hardening.patch.gz.b64 "Complete DESKTOPeye session-boundary hardening" "1e4be48"
+          apply_checkpoint .provider-publish/03-acceptance.patch.gz.b64 "Prepare interactive Build 001 acceptance harness" "e6a9336"
+
+          git rm -r .provider-publish .github/workflows/desktopeye-provider-publish.yml
+          expected_tree="1c05e1732a98236785f99abc6d317d227628a4b7"
+          actual_tree="$(git write-tree)"
+          test "$actual_tree" = "$expected_tree"
+          git commit -m "Remove temporary DESKTOPeye provider publication scaffolding" -m "Final provider tree verified against local implementation freeze $expected_tree."
+          test "$(git rev-parse HEAD^{tree})" = "$expected_tree"
+          git push origin HEAD:build/build001-acceptance-completion
