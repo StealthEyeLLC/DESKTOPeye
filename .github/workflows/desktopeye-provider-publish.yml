@@ -24,7 +24,8 @@ jobs:
           set -euo pipefail
           expected_base="ce0606d956640283723535f8ee94b5cbe8769e2b"
           expected_tree="d16e21241089df8ddcc652648aba5114cbf26b56"
-          expected_gzip_sha="6b33372ed41a1f10af540e8d03f1f56e16f17f15c6758c7587caacea9d8e49e8"
+          expected_gzip_sha="63236379da569709bf25af103425f122699c70d6adf837cb22514ab09382e3df"
+          expected_patch_sha="01aebb57790ff8cb1d5bea325f542a22ae992d077fc5c37753da7ee6e77ca4fd"
 
           python3 - <<'PY'
           import base64, pathlib
@@ -35,8 +36,13 @@ jobs:
           text += '=' * ((4 - len(text) % 4) % 4)
           pathlib.Path('/tmp/final.patch.gz').write_bytes(base64.urlsafe_b64decode(text))
           PY
-          test "$(sha256sum /tmp/final.patch.gz | awk '{print $1}')" = "$expected_gzip_sha"
+          actual_gzip_sha="$(sha256sum /tmp/final.patch.gz | awk '{print $1}')"
+          echo "payload gzip sha=$actual_gzip_sha"
+          test "$actual_gzip_sha" = "$expected_gzip_sha"
           gzip -dc /tmp/final.patch.gz > /tmp/final.patch
+          actual_patch_sha="$(sha256sum /tmp/final.patch | awk '{print $1}')"
+          echo "payload patch sha=$actual_patch_sha"
+          test "$actual_patch_sha" = "$expected_patch_sha"
 
           git config user.name "StealthEye Build Publication"
           git config user.email "build-publication@users.noreply.github.com"
@@ -45,6 +51,7 @@ jobs:
           git apply --check --binary /tmp/final.patch
           git apply --index --binary /tmp/final.patch
           actual_tree="$(git write-tree)"
+          echo "reconstructed tree=$actual_tree"
           test "$actual_tree" = "$expected_tree"
 
           git commit -m "Complete DESKTOPeye noninteractive Build 001 acceptance preparation" \
