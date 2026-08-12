@@ -37,7 +37,7 @@ async function waitUntil(fn,timeout=10000,interval=100){const until=Date.now()+t
 
 function pipeJson(pipe,payload,timeout=5000){return new Promise((resolve,reject)=>{const socket=net.createConnection(`\\\\.\\pipe\\${pipe}`);socket.setEncoding('utf8');let buf='';const timer=setTimeout(()=>{socket.destroy();reject(new Error(`oracle timeout ${pipe}`));},timeout);socket.on('connect',()=>socket.write(JSON.stringify(payload)+'\n'));socket.on('data',d=>{buf+=d;const i=buf.indexOf('\n');if(i>=0){clearTimeout(timer);socket.end();try{resolve(JSON.parse(buf.slice(0,i)));}catch(e){reject(e);}}});socket.on('error',e=>{clearTimeout(timer);reject(e);});});}
 const fixture=(action)=>pipeJson(fixturePipe,{cmd:'setup',action});
-const fixtureState=()=>pipeJson(fixturePipe,{cmd:'snapshot'});
+const fixtureState=()=>pipeJson(fixturePipe,{cmd:'state'});
 const adversary=(action)=>pipeJson(adversaryPipe,{cmd:'setup',action});
 const adversaryState=()=>pipeJson(adversaryPipe,{cmd:'snapshot'});
 const shellHello=async()=>{const r=await pipeJson('shelleye-dev',{jsonrpc:'2.0',id:1,method:'rpc.hello',params:{},timeoutMs:2000},3000);if(r.error)throw new Error('SHELLeye hello failed: '+r.error.code+': '+r.error.message);assert(r.result?.protocol==='shelleye-rpc','SHELLeye rpc protocol must be available');return r.result;};
