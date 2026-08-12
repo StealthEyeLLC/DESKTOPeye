@@ -225,6 +225,6 @@ No experiment above was run during this pass, and no inference from it is record
 
 ```text
 Architecture:           FINAL / SYNTHESIZED / VERIFIED / FROZEN FOR BUILD 001
-Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
+Product implementation: IMPLEMENTED / PENDING MEASURED ACCEPTANCE
 Build 001 acceptance:   NOT RUN
 ```

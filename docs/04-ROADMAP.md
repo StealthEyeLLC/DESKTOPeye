@@ -6,7 +6,7 @@ Status: **Directional after Build 001; sequence not frozen**
 
 Prove persistent correspondence, sparse retained concepts, virtualization-safe identity, conservative cold recovery, provider isolation, bounded deltas, condition waits, brokered semantic/visual/physical actuation, and a many-operation Program Host.
 
-Build 001 implementation is present and is undergoing recovery, hardening, and acceptance preparation. Measured acceptance has not yet run.
+Build 001 implementation is feature-complete for the frozen slice and all currently executable noninteractive validation is green. Measured interactive acceptance has not yet run.
 
 ## Candidate later areas
 

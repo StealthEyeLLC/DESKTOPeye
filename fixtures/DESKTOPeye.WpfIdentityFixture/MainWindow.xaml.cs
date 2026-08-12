@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -46,10 +47,30 @@ public partial class MainWindow : Window
     void BumpView(){_viewEpoch++;ViewEpochText.Text=$"view:{_viewEpoch}";AutomationProperties.SetItemStatus(KeyedList,$"view-epoch:{_viewEpoch}");State("view-changed");}
     void KeyedList_SelectionChanged(object s,SelectionChangedEventArgs e){SelectedKey=(KeyedList.SelectedItem as RowItem)?.Key??"";State("selection");}
     public FixtureState Snapshot()=>new(Environment.ProcessId,new System.Windows.Interop.WindowInteropHelper(this).Handle.ToInt64(),_viewEpoch,_dialogGeneration,_replaceGeneration,_parentGeneration,_pageGeneration,MenuCount,DuplicateACount,DuplicateBCount,MissingIdCount,AsyncCount,SelectedKey,PrimaryText.Text,PhysicalText.Text,FeatureToggle.IsChecked==true,VisualSurface.Hits,VisualSurface.TargetX,VisualSurface.TargetY,VisualSurface.Overlay,_dialogs.Select(d=>new System.Windows.Interop.WindowInteropHelper(d).Handle.ToInt64()).ToArray());
-    public async Task<object> SetupAsync(string action){return await Dispatcher.InvokeAsync<object>(()=>{switch(action){case"move_canvas":VisualSurface.MoveTarget();break;case"overlay_on":VisualSurface.Overlay=true;break;case"overlay_off":VisualSurface.Overlay=false;break;case"replace_control":ReplaceControl_Click(this,new RoutedEventArgs());break;case"recreate_parent":RecreateParent_Click(this,new RoutedEventArgs());break;case"navigate":Navigate_Click(this,new RoutedEventArgs());break;case"concurrent_dialogs":SpawnConcurrentDialogs();break;case"close_dialogs":CloseDialogs();break;case"focus_physical":PhysicalText.Focus();Keyboard.Focus(PhysicalText);break;case"focus_primary":PrimaryText.Focus();Keyboard.Focus(PrimaryText);break;case"disable_async":AsyncAction.IsEnabled=false;break;case"enable_async":AsyncAction.IsEnabled=true;break;case"visual_ambiguous_on":VisualSurface.Ambiguous=true;break;case"visual_ambiguous_off":VisualSurface.Ambiguous=false;break;default:throw new InvalidOperationException(action);}State("setup-"+action);return Snapshot();});}
+    public async Task<object> SetupAsync(string action){return await Dispatcher.InvokeAsync<object>(()=>{switch(action){case"move_canvas":VisualSurface.MoveTarget();break;case"overlay_on":VisualSurface.Overlay=true;break;case"overlay_off":VisualSurface.Overlay=false;break;case"replace_control":ReplaceControl_Click(this,new RoutedEventArgs());break;case"recreate_parent":RecreateParent_Click(this,new RoutedEventArgs());break;case"navigate":Navigate_Click(this,new RoutedEventArgs());break;case"concurrent_dialogs":SpawnConcurrentDialogs();break;case"modal_dialog":Dispatcher.BeginInvoke(()=>OpenDialog(true,false));break;case"close_dialogs":CloseDialogs();break;case"focus_physical":PhysicalText.Focus();Keyboard.Focus(PhysicalText);break;case"focus_primary":PrimaryText.Focus();Keyboard.Focus(PrimaryText);break;case"disable_async":AsyncAction.IsEnabled=false;break;case"enable_async":AsyncAction.IsEnabled=true;break;case"visual_ambiguous_on":VisualSurface.Ambiguous=true;break;case"visual_ambiguous_off":VisualSurface.Ambiguous=false;break;case"capture_exclude_on":CaptureExclusion.Set(new System.Windows.Interop.WindowInteropHelper(this).Handle,true);break;case"capture_exclude_off":CaptureExclusion.Set(new System.Windows.Interop.WindowInteropHelper(this).Handle,false);break;case"minimize":WindowState=WindowState.Minimized;break;case"restore":WindowState=WindowState.Normal;Activate();break;case"desktop_switch_brief":DesktopSwitchStimulus.Begin();break;default:throw new InvalidOperationException(action);}State("setup-"+action);return Snapshot();});}
 }
 public sealed record RowItem(string Key,string Display,int Ordinal);
 public sealed record FixtureState(int Pid,long MainHwnd,int ViewEpoch,int DialogGeneration,int ReplaceGeneration,int ParentGeneration,int PageGeneration,int MenuCount,int DuplicateACount,int DuplicateBCount,int MissingIdCount,int AsyncCount,string SelectedKey,string PrimaryText,string PhysicalText,bool Toggle,int CanvasHits,double CanvasTargetX,double CanvasTargetY,bool CanvasOverlay,long[] DialogHwnds);
+static class CaptureExclusion
+{
+    const uint WDA_NONE=0x00000000,WDA_EXCLUDEFROMCAPTURE=0x00000011;
+    [DllImport("user32.dll",SetLastError=true)] static extern bool SetWindowDisplayAffinity(IntPtr hwnd,uint affinity);
+    public static void Set(IntPtr hwnd,bool excluded){if(hwnd==IntPtr.Zero||!SetWindowDisplayAffinity(hwnd,excluded?WDA_EXCLUDEFROMCAPTURE:WDA_NONE))throw new Win32Exception(Marshal.GetLastWin32Error(),"SetWindowDisplayAffinity acceptance stimulus failed");}
+}static class DesktopSwitchStimulus
+{
+    const uint DesktopAccess=0x000F01FF;
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr OpenDesktop(string desktop,uint flags,bool inherit,uint desiredAccess);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr CreateDesktop(string desktop,IntPtr device,IntPtr devmode,uint flags,uint desiredAccess,IntPtr securityAttributes);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool SwitchDesktop(IntPtr desktop);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool CloseDesktop(IntPtr desktop);
+    public static void Begin()
+    {
+        var primary=OpenDesktop("Default",0,false,DesktopAccess);if(primary==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error(),"OpenDesktop(Default) failed");
+        var alternate=CreateDesktop("DESKTOPeyeAcceptance-"+Guid.NewGuid().ToString("N"),IntPtr.Zero,IntPtr.Zero,0,DesktopAccess,IntPtr.Zero);if(alternate==IntPtr.Zero){var error=Marshal.GetLastWin32Error();CloseDesktop(primary);throw new Win32Exception(error,"CreateDesktop acceptance stimulus failed");}
+        if(!SwitchDesktop(alternate)){var error=Marshal.GetLastWin32Error();CloseDesktop(alternate);CloseDesktop(primary);throw new Win32Exception(error,"SwitchDesktop acceptance stimulus failed");}
+        _=Task.Run(async()=>{try{await Task.Delay(1500);SwitchDesktop(primary);}finally{CloseDesktop(alternate);CloseDesktop(primary);}});
+    }
+}
 
 public sealed class DialogWindow:Window
 {

@@ -1,6 +1,6 @@
 # 02 — Build 001 Slice
 
-Status: **IMPLEMENTATION RECOVERY / ACCEPTANCE PREPARATION**
+Status: **IMPLEMENTED / PENDING MEASURED ACCEPTANCE**
 Architecture: **FROZEN FOR BUILD 001**
 Acceptance: **NOT RUN**
 
@@ -704,6 +704,6 @@ The architecture/specification pass itself ran no experiment. The current author
 Only after all gates pass may an implementation pass add `docs/09-BUILD-001-RESULTS.md`. It must include machine/toolchain versions, case-by-case outcomes, exact zero metrics, benchmark measurements, discovered deviations and canonical decision updates. Until then:
 
 ```text
-Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
+Product implementation: IMPLEMENTED / PENDING MEASURED ACCEPTANCE
 Build 001 acceptance:   NOT RUN
 ```

@@ -99,6 +99,6 @@ Alternative 9 is not a different center from 8. It is the falsification-hardened
 Build 001 proves the permanent spine with WPF, native Win32, current Windows APIs, one visual fallback, one pointer route, one keyboard route, cold recovery, provider failure, bounded deltas/waits, and the Program Host. It does not prove every UI framework or every physical modality.
 
 ```text
-Product implementation: PRESENT IN DEVELOPMENT / NOT YET ACCEPTED
+Product implementation: IMPLEMENTED / PENDING MEASURED ACCEPTANCE
 Build 001 acceptance:   NOT RUN
 ```
